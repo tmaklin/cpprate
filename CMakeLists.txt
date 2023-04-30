@@ -64,3 +64,4 @@ if(CMAKE_BUILD_TESTS)
 endif()
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/external/RedSVD)
