@@ -35,6 +35,15 @@
 #ifndef CPPRATE_CPPRATERES_HPP
 #define CPPRATE_CPPRATERES_HPP
 
+#include <Eigen/SparseCore>
+
+#include "RedSVD.h"
+
+#include <vector>
+#include <cstddef>
+#include <cmath>
+#include <iostream>
+
 struct CppRateRes {
 public:
     double ESS = 0.0;
@@ -44,5 +53,55 @@ public:
     std::vector<double> KLD = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
 				 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
 };
+
+template <typename T, typename V>
+Eigen::SparseMatrix<T> sparsify_design_matrix(const size_t n_rows, const size_t n_cols, const std::vector<V> &vals) {
+    std::vector<Eigen::Triplet<T>> triplet_list;
+    triplet_list.reserve(n_rows*n_cols);
+
+    for (size_t i = 0; i < n_rows; ++i) {
+	for (size_t j = 0; j < n_cols; ++j) {
+	    if (vals[i*n_cols + j] != (V)0) {
+		T val = (T)vals[i*n_cols + j];
+		triplet_list.emplace_back(Eigen::Triplet<T>(i, j, val));
+	    }
+	}
+    }
+    Eigen::SparseMatrix<T> mat(n_rows, n_cols);
+    mat.setFromTriplets(triplet_list.begin(), triplet_list.end());
+    return mat;
+}
+
+inline void RATE(const size_t n_obs, const size_t n_snps, const std::vector<bool> &design_matrix) {
+    // ## WARNING: Do not compile with -ffast-math
+
+    const size_t svd_rank = std::min(n_obs, n_snps);
+    const double prop_var = 1.0;
+
+    const Eigen::SparseMatrix<double> &X = sparsify_design_matrix<double, bool>(n_obs, n_snps, design_matrix);
+
+    RedSVD::RedSVD<Eigen::SparseMatrix<double>> res(X, svd_rank);
+
+    std::vector<double> px(svd_rank);
+    std::vector<bool> r_X(svd_rank);
+
+    double sv_sum = 0.0;
+    for (size_t i = 0; i < svd_rank; ++i) {
+	sv_sum += res.singularValues()[i]*res.singularValues()[i];
+    }
+
+    size_t num_r_X_set = 0;
+
+    for (size_t i = 0; i < svd_rank; ++i) {
+	px[i] = res.singularValues()[i]*res.singularValues()[i];
+	if (i > 0) {
+	    px[i] += px[i - 1];
+	}
+	px[i] /= sv_sum;
+	r_X[i] = (res.singularValues()[i] > (double)1e-10) && (px[i] < prop_var);
+	num_r_X_set += r_X[i];
+    }
+
+}
 
 #endif
