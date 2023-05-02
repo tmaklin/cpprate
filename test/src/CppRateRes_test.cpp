@@ -300,17 +300,18 @@ TEST_F(CppRateResTest, decompose_covariance_approximation) {
     size_t svd_rank = this->n_obs;
     decompose_design_matrix(mat, svd_rank, 1.0, &u, &v);
     const Eigen::MatrixXd project_cov_f_draws_mat = project_cov_f_draws(f_draws_mat, u);
+    std::cerr << project_cov_f_draws_mat << std::endl;
 
-    const Eigen::MatrixXd svd_cov_u_got = decompose_covariance_approximation(project_cov_f_draws_mat, v, 5);
+    const Eigen::MatrixXd svd_cov_u_got = decompose_covariance_approximation(project_cov_f_draws_mat, v, this->rank_r);
 
     // Check dimensions of `project_cov_f_draws_got`
     EXPECT_EQ(svd_cov_u_got.rows(), this->n_design_dim);
-    EXPECT_EQ(svd_cov_u_got.cols(), 5);
+    EXPECT_EQ(svd_cov_u_got.cols(), this->rank_r);
 
     // Check contents of `beta_draws_got`
     for (size_t i = 0; i < this->n_design_dim; ++i) {
-	for (size_t j = 0; j < 5; ++j) {
-	    EXPECT_NEAR(std::abs(svd_cov_u_got(i, j)), std::abs(svd_project_cov_f_draws_u[i*5 + j]), 1e-7);
+	for (size_t j = 0; j < this->rank_r; ++j) {
+	    EXPECT_NEAR(std::abs(svd_cov_u_got(i, j)), std::abs(svd_project_cov_f_draws_u[i*this->rank_r + j]), 1e-7);
 	}
     }
 }
@@ -404,7 +405,7 @@ TEST_F(CppRateResTest, create_lambda_lowrank) {
     size_t svd_rank = this->n_obs;
     decompose_design_matrix(mat, svd_rank, 1.0, &u, &v);
     const Eigen::MatrixXd project_cov_f_draws_mat = project_cov_f_draws(f_draws_mat, u);
-    const Eigen::MatrixXd svd_cov_u = decompose_covariance_approximation(project_cov_f_draws_mat, v, 5);
+    const Eigen::MatrixXd svd_cov_u = decompose_covariance_approximation(project_cov_f_draws_mat, v, this->rank_r);
 
     const Eigen::MatrixXd lambda_got = create_lambda(svd_cov_u.adjoint());
 

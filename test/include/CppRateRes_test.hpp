@@ -49,6 +49,7 @@ class CppRateResTest : public ::testing::Test {
 	this->n_design_dim = 20;
 	this->n_f_draws = 100;
 	this->n_obs = 10;
+	this->rank_r = 10;
 
 	// Input data
 	this->design_matrix = { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -164,14 +165,14 @@ class CppRateResTest : public ::testing::Test {
     }
 
     void TearDown() override {
-	// this->n_design_dim = 0;
-	// this->n_f_draws = 0;
-	// this->n_obs = 0;
+	this->n_design_dim = 0;
+	this->n_f_draws = 0;
+	this->n_obs = 0;
 
-	// this->design_matrix.clear();
-	// this->design_matrix.shrink_to_fit();
-	// this->f_draws.clear();
-	// this->f_draws.shrink_to_fit();
+	this->design_matrix.clear();
+	this->design_matrix.shrink_to_fit();
+	this->f_draws.clear();
+	this->f_draws.shrink_to_fit();
     }
 
     // Test parameters
@@ -179,6 +180,7 @@ class CppRateResTest : public ::testing::Test {
     size_t n_obs;
     size_t n_f_draws;
     std::vector<size_t> invariant_dim_indices;
+    size_t rank_r;
 
     // Input values
     std::vector<bool> design_matrix; // 10x`n_design_dims` matrix stored contiguously

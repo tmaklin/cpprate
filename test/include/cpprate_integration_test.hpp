@@ -49,6 +49,7 @@ class IntegrationTest : public ::testing::Test {
 	this->n_design_dim = 20;
 	this->n_f_draws = 100;
 	this->n_obs = 10;
+	this->rank_r = 10;
 
 	// Input data
 	this->design_matrix = { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -167,6 +168,7 @@ class IntegrationTest : public ::testing::Test {
 	this->n_design_dim = 0;
 	this->n_f_draws = 0;
 	this->n_obs = 0;
+	this->rank_r = 0;
 
 	this->design_matrix.clear();
 	this->f_draws.clear();
@@ -178,6 +180,7 @@ class IntegrationTest : public ::testing::Test {
     size_t n_design_dim;
     size_t n_f_draws;
     size_t n_obs;
+    size_t rank_r;
 
     // Expected values
     static double expected_ESS;
