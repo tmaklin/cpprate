@@ -151,7 +151,7 @@ TEST_F(CppRateResTest, nonlinear_coefficients) {
     }
 }
 
-TEST_F(CppRateResTest, covariance_matrix) {
+TEST_F(CppRateResTest, covariance_matrix_beta_draws) {
     Eigen::SparseMatrix<double> mat = sparsify_design_matrix<double, bool>(this->n_obs, this->n_design_dim, this->design_matrix);
     Eigen::MatrixXd f_draws_mat(this->n_f_draws, this->n_obs);
     for (size_t i = 0; i < this->n_f_draws; ++i) {
@@ -171,8 +171,146 @@ TEST_F(CppRateResTest, covariance_matrix) {
     // Check contents of `beta_draws_got`
     for (size_t i = 0; i < this->n_design_dim; ++i) {
 	for (size_t j = 0; j < this->n_design_dim; ++j) {
-	    // The signs might be flipped.
 	    EXPECT_NEAR(cov_got(i, j), beta_draws_cov_expected[i*this->n_design_dim + j], 1e-7);
+	}
+    }
+}
+
+TEST_F(CppRateResTest, covariance_matrix_f_draws) {
+    Eigen::SparseMatrix<double> mat = sparsify_design_matrix<double, bool>(this->n_obs, this->n_design_dim, this->design_matrix);
+    Eigen::MatrixXd f_draws_mat(this->n_f_draws, this->n_obs);
+    for (size_t i = 0; i < this->n_f_draws; ++i) {
+	for (size_t j = 0; j < this->n_obs; ++j) {
+	    f_draws_mat(i, j) = this->f_draws[i*this->n_obs + j];
+	}
+    }
+
+    const Eigen::MatrixXd &cov_got = covariance_matrix(f_draws_mat);
+
+    // Check dimensions of `beta_draws_got`
+    EXPECT_EQ(cov_got.rows(), this->n_obs);
+    EXPECT_EQ(cov_got.cols(), this->n_obs);
+
+    // Check contents of `beta_draws_got`
+    for (size_t i = 0; i < this->n_obs; ++i) {
+	for (size_t j = 0; j < this->n_obs; ++j) {
+	    EXPECT_NEAR(cov_got(i, j), f_draws_cov_expected[i*this->n_obs + j], 1e-6);
+	}
+    }
+}
+
+TEST_F(CppRateResTest, project_cov_f_draws) {
+    Eigen::SparseMatrix<double> mat = sparsify_design_matrix<double, bool>(this->n_obs, this->n_design_dim, this->design_matrix);
+    Eigen::MatrixXd f_draws_mat(this->n_f_draws, this->n_obs);
+    for (size_t i = 0; i < this->n_f_draws; ++i) {
+	for (size_t j = 0; j < this->n_obs; ++j) {
+	    f_draws_mat(i, j) = this->f_draws[i*this->n_obs + j];
+	}
+    }
+    const Eigen::MatrixXd &cov_f_draws = covariance_matrix(f_draws_mat);
+
+    Eigen::MatrixXd u;
+    Eigen::MatrixXd v;
+    size_t svd_rank = this->n_obs;
+    decompose_design_matrix(mat, svd_rank, 1.0, &u, &v);
+
+    const Eigen::MatrixXd project_cov_f_draws_got = project_cov_f_draws(f_draws_mat, u);
+
+    // Check dimensions of `project_cov_f_draws_got`
+    EXPECT_EQ(project_cov_f_draws_got.rows(), this->num_expected_invariant_dims);
+    EXPECT_EQ(project_cov_f_draws_got.cols(), this->num_expected_invariant_dims);
+
+    // Check contents of `beta_draws_got`
+    for (size_t i = 0; i < this->num_expected_invariant_dims; ++i) {
+	for (size_t j = 0; j < this->num_expected_invariant_dims; ++j) {
+	    EXPECT_NEAR(std::abs(project_cov_f_draws_got(i, j)), std::abs(project_cov_f_draws_expected[i*this->num_expected_invariant_dims + j]), 1e-7);
+	}
+    }
+}
+
+
+TEST_F(CppRateResTest, approximate_cov_beta) {
+    Eigen::SparseMatrix<double> mat = sparsify_design_matrix<double, bool>(this->n_obs, this->n_design_dim, this->design_matrix);
+    Eigen::MatrixXd f_draws_mat(this->n_f_draws, this->n_obs);
+    for (size_t i = 0; i < this->n_f_draws; ++i) {
+	for (size_t j = 0; j < this->n_obs; ++j) {
+	    f_draws_mat(i, j) = this->f_draws[i*this->n_obs + j];
+	}
+    }
+    const Eigen::MatrixXd &cov_f_draws = covariance_matrix(f_draws_mat);
+
+    Eigen::MatrixXd u;
+    Eigen::MatrixXd v;
+    size_t svd_rank = this->n_obs;
+    decompose_design_matrix(mat, svd_rank, 1.0, &u, &v);
+    const Eigen::MatrixXd &Sigma_star = project_cov_f_draws(f_draws_mat, u); // This works
+
+    const Eigen::MatrixXd &cov_beta_got = approximate_cov_beta(Sigma_star, v);
+
+    // Check dimensions of `project_cov_f_draws_got`
+    EXPECT_EQ(cov_beta_got.rows(), this->n_design_dim);
+    EXPECT_EQ(cov_beta_got.cols(), this->n_design_dim);
+
+    // Check contents of `beta_draws_got`
+    for (size_t i = 0; i < this->n_design_dim; ++i) {
+	for (size_t j = 0; j < this->n_design_dim; ++j) {
+	    EXPECT_NEAR(std::abs(cov_beta_got(i, j)), std::abs(approximate_cov_beta_expected[i*this->n_design_dim + j]), 1e-7);
+	}
+    }
+}
+
+TEST_F(CppRateResTest, approximate_beta_means) {
+    Eigen::SparseMatrix<double> mat = sparsify_design_matrix<double, bool>(this->n_obs, this->n_design_dim, this->design_matrix);
+    Eigen::MatrixXd f_draws_mat(this->n_f_draws, this->n_obs);
+    for (size_t i = 0; i < this->n_f_draws; ++i) {
+	for (size_t j = 0; j < this->n_obs; ++j) {
+	    f_draws_mat(i, j) = this->f_draws[i*this->n_obs + j];
+	}
+    }
+    const Eigen::MatrixXd &cov_f_draws = covariance_matrix(f_draws_mat);
+
+    Eigen::MatrixXd u;
+    Eigen::MatrixXd v;
+    size_t svd_rank = this->n_obs;
+    decompose_design_matrix(mat, svd_rank, 1.0, &u, &v);
+
+    const Eigen::VectorXd col_means_got = approximate_beta_means(f_draws_mat, u, v);
+
+    // Check dimensions of `project_cov_f_draws_got`
+    EXPECT_EQ(col_means_got.size(), this->n_design_dim);
+
+    // Check contents of `beta_draws_got`
+    for (size_t i = 0; i < this->n_design_dim; ++i) {
+	EXPECT_NEAR(col_means_got(i), approximate_beta_means_expected[i], 1e-6);
+    }
+}
+
+TEST_F(CppRateResTest, decompose_covariance_approximation) {
+    Eigen::SparseMatrix<double> mat = sparsify_design_matrix<double, bool>(this->n_obs, this->n_design_dim, this->design_matrix);
+    Eigen::MatrixXd f_draws_mat(this->n_f_draws, this->n_obs);
+    for (size_t i = 0; i < this->n_f_draws; ++i) {
+	for (size_t j = 0; j < this->n_obs; ++j) {
+	    f_draws_mat(i, j) = this->f_draws[i*this->n_obs + j];
+	}
+    }
+    const Eigen::MatrixXd &cov_f_draws = covariance_matrix(f_draws_mat);
+
+    Eigen::MatrixXd u;
+    Eigen::MatrixXd v;
+    size_t svd_rank = this->n_obs;
+    decompose_design_matrix(mat, svd_rank, 1.0, &u, &v);
+    const Eigen::MatrixXd project_cov_f_draws_mat = project_cov_f_draws(f_draws_mat, u);
+
+    const Eigen::MatrixXd svd_cov_u_got = decompose_covariance_approximation(project_cov_f_draws_mat, v, 5);
+
+    // Check dimensions of `project_cov_f_draws_got`
+    EXPECT_EQ(svd_cov_u_got.rows(), this->n_design_dim);
+    EXPECT_EQ(svd_cov_u_got.cols(), 5);
+
+    // Check contents of `beta_draws_got`
+    for (size_t i = 0; i < this->n_design_dim; ++i) {
+	for (size_t j = 0; j < 5; ++j) {
+	    EXPECT_NEAR(std::abs(svd_cov_u_got(i, j)), std::abs(svd_project_cov_f_draws_u[i*5 + j]), 1e-7);
 	}
     }
 }
@@ -224,7 +362,7 @@ TEST_F(CppRateResTest, col_means) {
     }
 }
 
-TEST_F(CppRateResTest, create_lambda) {
+TEST_F(CppRateResTest, create_lambda_fullrank) {
     Eigen::SparseMatrix<double> mat = sparsify_design_matrix<double, bool>(this->n_obs, this->n_design_dim, this->design_matrix);
     Eigen::MatrixXd f_draws_mat(this->n_f_draws, this->n_obs);
     for (size_t i = 0; i < this->n_f_draws; ++i) {
@@ -247,6 +385,37 @@ TEST_F(CppRateResTest, create_lambda) {
 	for (size_t j = 0; j < this->n_design_dim; ++j) {
 	    // The signs might be flipped.
 	    EXPECT_NEAR(std::abs(lambda_got(i, j)), std::abs(lambda_expected[i*this->n_design_dim + j]), 1e-6);
+	}
+    }
+}
+
+TEST_F(CppRateResTest, create_lambda_lowrank) {
+    Eigen::SparseMatrix<double> mat = sparsify_design_matrix<double, bool>(this->n_obs, this->n_design_dim, this->design_matrix);
+    Eigen::MatrixXd f_draws_mat(this->n_f_draws, this->n_obs);
+    for (size_t i = 0; i < this->n_f_draws; ++i) {
+	for (size_t j = 0; j < this->n_obs; ++j) {
+	    f_draws_mat(i, j) = this->f_draws[i*this->n_obs + j];
+	}
+    }
+    const Eigen::MatrixXd &cov_f_draws = covariance_matrix(f_draws_mat);
+
+    Eigen::MatrixXd u;
+    Eigen::MatrixXd v;
+    size_t svd_rank = this->n_obs;
+    decompose_design_matrix(mat, svd_rank, 1.0, &u, &v);
+    const Eigen::MatrixXd project_cov_f_draws_mat = project_cov_f_draws(f_draws_mat, u);
+    const Eigen::MatrixXd svd_cov_u = decompose_covariance_approximation(project_cov_f_draws_mat, v, 5);
+
+    const Eigen::MatrixXd lambda_got = create_lambda(svd_cov_u.adjoint());
+
+    // Check dimensions of `project_cov_f_draws_got`
+    EXPECT_EQ(lambda_got.rows(), this->n_design_dim);
+    EXPECT_EQ(lambda_got.cols(), this->n_design_dim);
+
+    // Check contents of `beta_draws_got`
+    for (size_t i = 0; i < this->n_design_dim; ++i) {
+	for (size_t j = 0; j < this->n_design_dim; ++j) {
+	    EXPECT_NEAR(std::abs(lambda_got(i, j)), std::abs(lowrank_lambda_expected[i*this->n_design_dim + j]), 1e-7);
 	}
     }
 }

@@ -36,19 +36,19 @@
 
 #include "CppRateRes.hpp"
 
-// Test cpprate
+// Test fullrank
 TEST_F(IntegrationTest, EssIsCorrect) {
     RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws);
     EXPECT_NEAR(res.ESS, this->expected_ESS, 1e-7);
 }
 
-// Test cpprate
+// Test fullrank
 TEST_F(IntegrationTest, DeltaIsCorrect) {
     RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws);
     EXPECT_NEAR(res.Delta, this->expected_Delta, 1e-7);
 }
 
-// Test cpprate
+// Test fullrank
 TEST_F(IntegrationTest, RateIsCorrect) {
     RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws);
     for (size_t i = 0; i < n_design_dim; ++i) {
@@ -57,11 +57,42 @@ TEST_F(IntegrationTest, RateIsCorrect) {
 
 }
 
-// Test cpprate
+// Test fullrank
 TEST_F(IntegrationTest, KldIsCorrect) {
     RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws);
     for (size_t i = 0; i < n_design_dim; ++i) {
 	EXPECT_NEAR(res.KLD[i], this->expected_KLD[i], 1e-7);
+    }
+
+}
+
+
+// Test lowrank
+TEST_F(IntegrationTest, LowRank_EssIsCorrect) {
+    RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws, true, 5);
+    EXPECT_NEAR(res.ESS, this->expected_lr_ESS, 1e-7);
+}
+
+// Test lowrank
+TEST_F(IntegrationTest, LowRank_DeltaIsCorrect) {
+    RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws, true, 5);
+    EXPECT_NEAR(res.Delta, this->expected_lr_Delta, 1e-7);
+}
+
+// Test lowrank
+TEST_F(IntegrationTest, LowRank_RateIsCorrect) {
+    RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws, true, 5);
+    for (size_t i = 0; i < n_design_dim; ++i) {
+	EXPECT_NEAR(res.RATE[i], this->expected_lr_RATE[i], 1e-7);
+    }
+
+}
+
+// Test lowrank
+TEST_F(IntegrationTest, LowRank_KldIsCorrect) {
+    RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws, true, 5);
+    for (size_t i = 0; i < n_design_dim; ++i) {
+	EXPECT_NEAR(res.KLD[i], this->expected_lr_KLD[i], 1e-7);
     }
 
 }
