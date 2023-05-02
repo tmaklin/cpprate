@@ -152,7 +152,7 @@ namespace RedSVD
 			// Range(C) = Range(B)
 			DenseMatrix C = Z.transpose() * B;
 
-			Eigen::JacobiSVD<DenseMatrix> svdOfC(C, Eigen::ComputeThinU | Eigen::ComputeThinV);
+			Eigen::BDCSVD<DenseMatrix> svdOfC(C, Eigen::ComputeThinU | Eigen::ComputeThinV);
 
 			// C = USV^T
 			// A = Z * U * S * V^T * Y^T()
