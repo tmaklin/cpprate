@@ -38,19 +38,19 @@
 
 // Test cpprate
 TEST_F(IntegrationTest, EssIsCorrect) {
-    CppRateRes res;
+    RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws);
     EXPECT_NEAR(res.ESS, this->expected_ESS, 1e-7);
 }
 
 // Test cpprate
 TEST_F(IntegrationTest, DeltaIsCorrect) {
-    CppRateRes res;
+    RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws);
     EXPECT_NEAR(res.Delta, this->expected_Delta, 1e-7);
 }
 
 // Test cpprate
 TEST_F(IntegrationTest, RateIsCorrect) {
-    CppRateRes res;
+    RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws);
     for (size_t i = 0; i < n_design_dim; ++i) {
 	EXPECT_NEAR(res.RATE[i], this->expected_RATE[i], 1e-7);
     }
@@ -59,9 +59,9 @@ TEST_F(IntegrationTest, RateIsCorrect) {
 
 // Test cpprate
 TEST_F(IntegrationTest, KldIsCorrect) {
-    CppRateRes res;
+    RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws);
     for (size_t i = 0; i < n_design_dim; ++i) {
-	EXPECT_EQ(res.KLD[i], this->expected_KLD[i]);
+	EXPECT_NEAR(res.KLD[i], this->expected_KLD[i], 1e-7);
     }
 
 }

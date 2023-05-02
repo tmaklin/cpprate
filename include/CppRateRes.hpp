@@ -44,14 +44,19 @@
 #include <cmath>
 #include <iostream>
 
-struct CppRateRes {
+struct RATEd {
 public:
-    double ESS = 0.0;
-    double Delta = 0.0;
-    std::vector<double> RATE = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-				 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
-    std::vector<double> KLD = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-				 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+    double ESS;
+    double Delta;
+    std::vector<double> RATE;
+    std::vector<double> KLD;
+
+    RATEd(double _ESS, double _Delta, std::vector<double> _RATE, std::vector<double> _KLD) {
+	this->ESS = _ESS;
+	this->Delta = _Delta;
+	this->RATE = _RATE;
+	this->KLD = _KLD;
+    }
 };
 
 template <typename T, typename V>
@@ -72,36 +77,211 @@ Eigen::SparseMatrix<T> sparsify_design_matrix(const size_t n_rows, const size_t 
     return mat;
 }
 
-inline void RATE(const size_t n_obs, const size_t n_snps, const std::vector<bool> &design_matrix) {
-    // ## WARNING: Do not compile with -ffast-math
+inline Eigen::MatrixXd sherman_r(const Eigen::MatrixXd &ap, const Eigen::VectorXd &u, const Eigen::VectorXd &v) {
+    Eigen::MatrixXd nominator = ap * u * Eigen::Transpose<const Eigen::VectorXd>(v) * ap;
+    Eigen::MatrixXd denominator = Eigen::MatrixXd::Ones(ap.rows(), ap.cols()) + u * Eigen::Transpose<const Eigen::VectorXd>(v) * ap;
+    return (ap - (nominator.array()/denominator.array()).matrix());
+}
 
-    const size_t svd_rank = std::min(n_obs, n_snps);
-    const double prop_var = 1.0;
+template <typename T>
+inline void svd(const T &design_matrix, const size_t svd_rank,
+		Eigen::MatrixXd *u, Eigen::MatrixXd *v, Eigen::VectorXd *d) {
+    RedSVD::RedSVD<T> mat(design_matrix, svd_rank);
+    (*u) = mat.matrixU();
+    (*v) = mat.matrixV();
+    (*d) = mat.singularValues();
+}
 
-    const Eigen::SparseMatrix<double> &X = sparsify_design_matrix<double, bool>(n_obs, n_snps, design_matrix);
+inline void decompose_design_matrix(const Eigen::SparseMatrix<double> &design_matrix, const size_t svd_rank, const double prop_var,
+			     Eigen::MatrixXd *u, Eigen::MatrixXd *v) {
+    // Calculate the singular value decomposition of `design_matrix`
+    // and return the submatrices of the decomposition that correspond
+    // to nonzero eigenvalues AND explain `prop_var` of the total
+    // variance (default: explain 100%).
 
-    RedSVD::RedSVD<Eigen::SparseMatrix<double>> res(X, svd_rank);
+    Eigen::VectorXd svd_X_singular_values;
+    Eigen::MatrixXd svd_X_U;
+    Eigen::MatrixXd svd_X_V;
+    svd<Eigen::SparseMatrix<double>>(design_matrix, svd_rank, &svd_X_U, &svd_X_V, &svd_X_singular_values);
 
     std::vector<double> px(svd_rank);
     std::vector<bool> r_X(svd_rank);
 
     double sv_sum = 0.0;
     for (size_t i = 0; i < svd_rank; ++i) {
-	sv_sum += res.singularValues()[i]*res.singularValues()[i];
+	sv_sum += svd_X_singular_values[i]*svd_X_singular_values[i];
     }
 
     size_t num_r_X_set = 0;
-
     for (size_t i = 0; i < svd_rank; ++i) {
-	px[i] = res.singularValues()[i]*res.singularValues()[i];
+	px[i] = svd_X_singular_values[i]*svd_X_singular_values[i];
+	px[i] /= sv_sum;
 	if (i > 0) {
 	    px[i] += px[i - 1];
 	}
-	px[i] /= sv_sum;
-	r_X[i] = (res.singularValues()[i] > (double)1e-10) && (px[i] < prop_var);
+	r_X[i] = (svd_X_singular_values[i] > (double)1e-10) && (std::abs(px[i] - prop_var) > 1e-7);
 	num_r_X_set += r_X[i];
     }
 
+    Eigen::VectorXi keep_dim(num_r_X_set);
+    size_t k = 0;
+    for (size_t i = 0; i < svd_rank; ++i) {
+	if (r_X[i]) {
+	    keep_dim[k] = i;
+	    ++k;
+	}
+    }
+    
+    size_t n_rows_U = svd_X_U.rows();
+    size_t n_cols_U = svd_X_U.cols();
+    (*u) = Eigen::MatrixXd(num_r_X_set, n_rows_U);
+
+    k = 0;
+    for (size_t i = 0; i < n_cols_U; ++i) {
+	if (r_X[i]) {
+	    for (size_t j = 0; j < n_rows_U; ++j) {
+		(*u)(k, j) = (1.0/svd_X_singular_values[i])*svd_X_U(j, i);
+	    }
+	    ++k;
+	}
+    }
+    (*v) = svd_X_V(Eigen::indexing::all, keep_dim);
+}
+
+inline Eigen::MatrixXd nonlinear_coefficients(const Eigen::SparseMatrix<double> &design_matrix, const Eigen::MatrixXd &f_draws) {
+    const Eigen::MatrixXd &inv_X = Eigen::MatrixXd(design_matrix).completeOrthogonalDecomposition().pseudoInverse();
+    const Eigen::MatrixXd &beta_draws = inv_X*f_draws.adjoint(); // TODO just fill in the transpose.
+    return beta_draws.adjoint();
+
+}
+
+inline Eigen::MatrixXd covariance_matrix(const Eigen::MatrixXd &in) {
+    const Eigen::MatrixXd &centered = in.rowwise() - in.colwise().mean();
+    return (centered.adjoint() * centered) / double(in.rows() - 1);
+}
+
+inline Eigen::MatrixXd decompose_covariance_matrix(const Eigen::MatrixXd &covariance_matrix) {
+    // Calculate the singular value decomposition of `design_matrix`
+    // and return the submatrices of the decomposition that correspond
+    // to nonzero eigenvalues AND explain `prop_var` of the total
+    // variance (default: explain 100%).
+
+    const Eigen::MatrixXd &inv_cov_mat = covariance_matrix.completeOrthogonalDecomposition().pseudoInverse();
+    const size_t rank = inv_cov_mat.cols();
+
+    Eigen::VectorXd svd_singular_values;
+    Eigen::MatrixXd svd_U;
+    Eigen::MatrixXd svd_V;
+
+    svd<Eigen::MatrixXd>(inv_cov_mat, rank, &svd_U, &svd_V, &svd_singular_values);
+
+    std::vector<bool> r_D(rank);
+    size_t num_r_D_set = 0;
+    for (size_t i = 0; i < rank; ++i) {
+	r_D[i] = svd_singular_values[i] > 1e-10;
+	num_r_D_set += r_D[i];
+    }
+    // Missing the filtering with r_D
+    size_t n_rows_D = svd_U.rows();
+    size_t n_cols_D = svd_U.cols();
+    Eigen::MatrixXd u(num_r_D_set, n_rows_D);
+    for (size_t i = 0; i < num_r_D_set; ++i) { // TODO email the authors if this is right?
+	for (size_t j = 0; j < n_rows_D; ++j) {
+	    u(i, j) = std::sqrt(svd_singular_values[i])*svd_U(j, i);
+	}
+    }
+
+    return u;
+}
+
+inline Eigen::VectorXd col_means(const Eigen::MatrixXd &mat) {
+    return mat.colwise().mean();
+}
+
+inline Eigen::MatrixXd create_lambda(const Eigen::MatrixXd &U) {
+    return U.adjoint()*U;
+}
+
+inline double dropped_predictor_kld(const Eigen::MatrixXd &lambda, const Eigen::MatrixXd &cov_beta, const Eigen::VectorXd &mean_beta, const size_t predictor_id) {
+    double m = std::abs(mean_beta[predictor_id]);
+    Eigen::MatrixXd U_Lambda_sub = sherman_r(lambda, cov_beta.col(predictor_id), cov_beta.col(predictor_id));
+    Eigen::VectorXi dropped_predictor(mean_beta.size() - 1);
+    size_t k = 0;
+    for (size_t j = 0; j < mean_beta.size(); ++j) {
+	if (j != predictor_id) {
+	    dropped_predictor[k] = j;
+	    ++k;
+	}
+    }
+    Eigen::MatrixXd alpha = Eigen::Transpose<const Eigen::MatrixXd>(U_Lambda_sub(dropped_predictor, predictor_id))*U_Lambda_sub(dropped_predictor, dropped_predictor)*U_Lambda_sub(dropped_predictor, predictor_id);
+    return 0.5*m*alpha(0, 0)*m;
+}
+
+inline std::vector<double> rate_from_kld(const std::vector<double> &kld, const double kld_sum) {
+    std::vector<double> RATE(kld.size());
+    for (size_t i = 0; i < kld.size(); ++i) {
+	RATE[i] = kld[i]/kld_sum;
+    }
+    return RATE;
+}
+
+inline double rate_delta(const std::vector<double> &RATE) {
+    double Delta = 0.0;
+    for (size_t i = 0; i < RATE.size(); ++i) {
+	Delta += RATE[i]*std::log(RATE.size()*(RATE[i] + 1e-16));
+    }
+    return Delta;
+}
+
+inline double delta_to_ess(const double delta) {
+    return 1.0/(1.0 + delta)*100.0;
+}
+
+inline RATEd RATE(const size_t n_obs, const size_t n_snps, const size_t n_f_draws, std::vector<bool> &design_matrix, const std::vector<double> &f_draws) {
+    // ## WARNING: Do not compile with -ffast-math
+
+    size_t svd_rank = std::min(n_obs, n_snps);
+    const double prop_var = 1.0; // TODO email the authors if this is right (if prop.var == 1.0 the last component is always ignored)?
+
+    const Eigen::SparseMatrix<double> &X = sparsify_design_matrix<double, bool>(n_obs, n_snps, design_matrix);
+    Eigen::MatrixXd f_draws_mat(n_f_draws, n_obs);
+    for (size_t i = 0; i < n_f_draws; ++i) {
+	for (size_t j = 0; j < n_obs; ++j) {
+	    f_draws_mat(i, j) = f_draws[i*n_obs + j];
+	}
+    }
+
+    Eigen::MatrixXd u;
+    Eigen::MatrixXd v;
+    decompose_design_matrix(X, svd_rank, prop_var, &u, &v);
+
+    // Implement low rank version 
+    // TODO
+
+    // full rank
+    const Eigen::MatrixXd &beta_draws = nonlinear_coefficients(X, f_draws_mat);
+
+    const Eigen::MatrixXd &V = covariance_matrix(beta_draws);
+    const Eigen::MatrixXd &U = decompose_covariance_matrix(V);
+
+    const Eigen::VectorXd &col_means_beta = col_means(beta_draws);
+
+    const Eigen::MatrixXd &Lambda = create_lambda(U);
+
+    std::vector<double> KLD(n_snps);
+
+    double KLD_sum = 0.0;
+    for (size_t i = 0; i < n_snps; ++i) {
+	KLD[i] = dropped_predictor_kld(Lambda, V, col_means_beta, i);
+	KLD_sum += KLD[i];
+    }
+
+    const std::vector<double> &RATE = rate_from_kld(KLD, KLD_sum);
+    const double Delta = rate_delta(RATE);
+
+    const double ESS = delta_to_ess(Delta);
+
+    return RATEd(ESS, Delta, RATE, KLD);
 }
 
 #endif
