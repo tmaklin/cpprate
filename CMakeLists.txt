@@ -3,9 +3,25 @@ project(cpprate)
 
 set(CMAKE_CXX_STANDARD 14)
 
-set(CMAKE_BUILD_TYPE RELEASE)
+## Determine build type
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release) ## Build Release by default
+elseif(CMAKE_BUILD_TYPE MATCHES Debug)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -Wall -Wextra -Wpedantic")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -g -Wall -Wextra -Wpedantic")
+  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -g -Wall -Wextra -Wpedantic")
+endif()
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-fast-math")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-fast-math")
+
+# Check dependencies
+## OpenMP
+find_package(OpenMP)
+if (OPENMP_FOUND)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_PARALLEL")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -D_GLIBCXX_PARALLEL")
+  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -D_GLIBCXX_PARALLEL")
+endif()
 
 ## eigen
 if (DEFINED CMAKE_EIGEN_HEADERS)
@@ -61,6 +77,9 @@ if(CMAKE_BUILD_TESTS)
     ${CMAKE_CURRENT_SOURCE_DIR}/test/src/cpprate_integration_test.cpp)
   add_test(runTests runTests)
   target_link_libraries(runTests gtest gtest_main)
+  if (OPENMP_FOUND)
+      target_link_libraries(runTests OpenMP::OpenMP_CXX)
+    endif()
 endif()
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
