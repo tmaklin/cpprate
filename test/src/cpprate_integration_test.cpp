@@ -37,19 +37,19 @@
 #include "CppRateRes.hpp"
 
 // Test fullrank
-TEST_F(IntegrationTest, EssIsCorrect) {
+TEST_F(FullrankIntegrationTest, EssIsCorrect) {
     RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws);
     EXPECT_NEAR(res.ESS, this->expected_ESS, 1e-7);
 }
 
 // Test fullrank
-TEST_F(IntegrationTest, DeltaIsCorrect) {
+TEST_F(FullrankIntegrationTest, DeltaIsCorrect) {
     RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws);
     EXPECT_NEAR(res.Delta, this->expected_Delta, 1e-7);
 }
 
 // Test fullrank
-TEST_F(IntegrationTest, RateIsCorrect) {
+TEST_F(FullrankIntegrationTest, RateIsCorrect) {
     RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws);
     for (size_t i = 0; i < n_design_dim; ++i) {
 	EXPECT_NEAR(res.RATE[i], this->expected_RATE[i], 1e-7);
@@ -58,7 +58,7 @@ TEST_F(IntegrationTest, RateIsCorrect) {
 }
 
 // Test fullrank
-TEST_F(IntegrationTest, KldIsCorrect) {
+TEST_F(FullrankIntegrationTest, KldIsCorrect) {
     RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws);
     for (size_t i = 0; i < n_design_dim; ++i) {
 	EXPECT_NEAR(res.KLD[i], this->expected_KLD[i], 1e-7);
@@ -66,21 +66,20 @@ TEST_F(IntegrationTest, KldIsCorrect) {
 
 }
 
-
 // Test lowrank
-TEST_F(IntegrationTest, LowRank_EssIsCorrect) {
+TEST_F(LowrankIntegrationTest, LowRank_EssIsCorrect) {
     RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws, true, this->rank_r);
     EXPECT_NEAR(res.ESS, this->expected_lr_ESS, 1e-7);
 }
 
 // Test lowrank
-TEST_F(IntegrationTest, LowRank_DeltaIsCorrect) {
+TEST_F(LowrankIntegrationTest, LowRank_DeltaIsCorrect) {
     RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws, true, this->rank_r);
     EXPECT_NEAR(res.Delta, this->expected_lr_Delta, 1e-7);
 }
 
 // Test lowrank
-TEST_F(IntegrationTest, LowRank_RateIsCorrect) {
+TEST_F(LowrankIntegrationTest, LowRank_RateIsCorrect) {
     RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws, true, this->rank_r);
     for (size_t i = 0; i < n_design_dim; ++i) {
 	EXPECT_NEAR(res.RATE[i], this->expected_lr_RATE[i], 1e-7);
@@ -89,10 +88,9 @@ TEST_F(IntegrationTest, LowRank_RateIsCorrect) {
 }
 
 // Test lowrank
-TEST_F(IntegrationTest, LowRank_KldIsCorrect) {
+TEST_F(LowrankIntegrationTest, LowRank_KldIsCorrect) {
     RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws, true, this->rank_r);
     for (size_t i = 0; i < n_design_dim; ++i) {
 	EXPECT_NEAR(res.KLD[i], this->expected_lr_KLD[i], 1e-7);
     }
-
 }
