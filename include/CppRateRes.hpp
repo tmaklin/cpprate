@@ -274,13 +274,13 @@ inline double delta_to_ess(const double delta) {
     return 1.0/(1.0 + delta)*100.0;
 }
 
-inline Eigen::MatrixXd project_cov_f_draws(const Eigen::MatrixXd &f_draws, const Eigen::MatrixXd &v) {
+inline Eigen::MatrixXd project_f_draws(const Eigen::MatrixXd &f_draws, const Eigen::MatrixXd &v) {
     const Eigen::MatrixXd &cov_f_draws = covariance_matrix(f_draws);
     return v*cov_f_draws*v.adjoint();
 }
 
-inline Eigen::MatrixXd approximate_cov_beta(const Eigen::MatrixXd &project_cov_f_draws, const Eigen::MatrixXd &v) {
-    return v*project_cov_f_draws*v.adjoint();
+inline Eigen::MatrixXd approximate_cov_beta(const Eigen::MatrixXd &project_f_draws, const Eigen::MatrixXd &v) {
+    return v*project_f_draws*v.adjoint();
 }
 
 inline Eigen::VectorXd approximate_beta_means(const Eigen::MatrixXd &f_draws, const Eigen::MatrixXd &u, const Eigen::MatrixXd &v) {
@@ -305,14 +305,11 @@ inline RATEd RATE(const size_t n_obs, const size_t n_snps, const size_t n_f_draw
     Eigen::MatrixXd v;
     decompose_design_matrix(X, svd_rank, prop_var, &u, &v);
 
-    // Implement low rank version 
-    // TODO
-
     Eigen::MatrixXd cov_beta;
     Eigen::MatrixXd svd_cov_beta_u;
     Eigen::VectorXd col_means_beta;
     if (low_rank) {
-	const Eigen::MatrixXd &Sigma_star = project_cov_f_draws(f_draws_mat, u);
+	const Eigen::MatrixXd &Sigma_star = project_f_draws(f_draws_mat, u);
 	svd_cov_beta_u = decompose_covariance_approximation(Sigma_star, v, low_rank_rank).adjoint(); // This does not work
 	cov_beta = approximate_cov_beta(Sigma_star, v);
 	col_means_beta = approximate_beta_means(f_draws_mat, u, v);
