@@ -73,7 +73,12 @@ if(CMAKE_BUILD_TESTS)
   enable_testing()
   set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/bin)
   add_executable(runTests
-    ${CMAKE_CURRENT_SOURCE_DIR}/test/src/CppRateRes_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/src/design_matrix_unit_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/src/svd_unit_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/src/fullrank_unit_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/src/lowrank_unit_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/src/kld_unit_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/src/transformed_results_unit_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/test/src/lowrank_integration_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/test/src/fullrank_integration_test.cpp)
   add_test(runTests runTests)
