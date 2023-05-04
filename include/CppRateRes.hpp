@@ -87,9 +87,9 @@ template <typename T>
 inline void svd(const T &design_matrix, const size_t svd_rank,
 		Eigen::MatrixXd *u, Eigen::MatrixXd *v, Eigen::VectorXd *d) {
     RedSVD::RedSVD<T> mat(design_matrix, svd_rank);
-    (*u) = mat.matrixU();
-    (*v) = mat.matrixV();
-    (*d) = mat.singularValues();
+    (*u) = std::move(mat.matrixU());
+    (*v) = std::move(mat.matrixV());
+    (*d) = std::move(mat.singularValues());
 }
 
 inline void decompose_design_matrix(const Eigen::SparseMatrix<double> &design_matrix, const size_t svd_rank, const double prop_var,
@@ -134,7 +134,7 @@ inline void decompose_design_matrix(const Eigen::SparseMatrix<double> &design_ma
     
     size_t n_rows_U = svd_X_U.rows();
     size_t n_cols_U = svd_X_U.cols();
-    (*u) = Eigen::MatrixXd(num_r_X_set, n_rows_U);
+    (*u) = std::move(Eigen::MatrixXd(num_r_X_set, n_rows_U));
 
     k = 0;
     for (size_t i = 0; i < n_cols_U; ++i) {
@@ -145,13 +145,13 @@ inline void decompose_design_matrix(const Eigen::SparseMatrix<double> &design_ma
 	    ++k;
 	}
     }
-    (*v) = svd_X_V(Eigen::indexing::all, keep_dim);
+    (*v) = std::move(svd_X_V(Eigen::indexing::all, keep_dim));
 }
 
 inline Eigen::MatrixXd nonlinear_coefficients(const Eigen::SparseMatrix<double> &design_matrix, const Eigen::MatrixXd &f_draws) {
     const Eigen::MatrixXd &inv_X = Eigen::MatrixXd(design_matrix).completeOrthogonalDecomposition().pseudoInverse();
-    const Eigen::MatrixXd &beta_draws = inv_X*f_draws.adjoint(); // TODO just fill in the transpose.
-    return beta_draws.adjoint();
+    const Eigen::MatrixXd &beta_draws = f_draws*inv_X.adjoint(); // TODO just fill in the transpose.
+    return beta_draws;
 
 }
 
@@ -231,7 +231,8 @@ inline Eigen::MatrixXd decompose_covariance_approximation(const Eigen::MatrixXd 
     }
     const Eigen::MatrixXd &inv_v = v.completeOrthogonalDecomposition().pseudoInverse();
 
-    return (U*inv_v).adjoint();
+    // We could probably reuse the svd_U or svd_V matrix ?
+    return (U*inv_v).adjoint(); // TODO just fill in the transpose of U (its also faster to traverse that way)
 }
 
 inline Eigen::VectorXd col_means(const Eigen::MatrixXd &mat) {
@@ -239,7 +240,7 @@ inline Eigen::VectorXd col_means(const Eigen::MatrixXd &mat) {
 }
 
 inline Eigen::MatrixXd create_lambda(const Eigen::MatrixXd &U) {
-    return (U.adjoint()*U).adjoint();
+    return U.adjoint()*U;
 }
 
 inline double dropped_predictor_kld(const Eigen::MatrixXd &lambda, const Eigen::MatrixXd &cov_beta, const Eigen::VectorXd &mean_beta, const size_t predictor_id) {
@@ -253,7 +254,7 @@ inline double dropped_predictor_kld(const Eigen::MatrixXd &lambda, const Eigen::
 	    ++k;
 	}
     }
-    Eigen::MatrixXd alpha = Eigen::Transpose<const Eigen::MatrixXd>(U_Lambda_sub(dropped_predictor, predictor_id))*U_Lambda_sub(dropped_predictor, dropped_predictor)*U_Lambda_sub(dropped_predictor, predictor_id);
+    Eigen::MatrixXd alpha = U_Lambda_sub(dropped_predictor, predictor_id).adjoint()*U_Lambda_sub(dropped_predictor, dropped_predictor)*U_Lambda_sub(dropped_predictor, predictor_id);
     return 0.5*m*alpha(0, 0)*m;
 }
 
@@ -304,26 +305,25 @@ inline RATEd RATE(const size_t n_obs, const size_t n_snps, const size_t n_f_draw
 	}
     }
 
-    Eigen::MatrixXd u;
-    Eigen::MatrixXd v;
-    decompose_design_matrix(X, svd_rank, prop_var, &u, &v);
-
     Eigen::MatrixXd cov_beta;
-    Eigen::MatrixXd svd_cov_beta_u;
     Eigen::VectorXd col_means_beta;
+    Eigen::MatrixXd Lambda;
     if (low_rank) {
+	Eigen::MatrixXd u;
+	Eigen::MatrixXd v;
+	decompose_design_matrix(X, svd_rank, prop_var, &u, &v);
 	const Eigen::MatrixXd &Sigma_star = project_f_draws(f_draws_mat, u);
-	svd_cov_beta_u = decompose_covariance_approximation(Sigma_star, v, low_rank_rank).adjoint(); // This does not work
+	const Eigen::MatrixXd &svd_cov_beta_u = decompose_covariance_approximation(Sigma_star, v, low_rank_rank).adjoint(); // This does not work
 	cov_beta = approximate_cov_beta(Sigma_star, v);
 	col_means_beta = approximate_beta_means(f_draws_mat, u, v);
+	Lambda = create_lambda(svd_cov_beta_u);
     } else {
 	const Eigen::MatrixXd &beta_draws = nonlinear_coefficients(X, f_draws_mat);
 	cov_beta = covariance_matrix(beta_draws);
-	svd_cov_beta_u = decompose_covariance_matrix(cov_beta);
+	const Eigen::MatrixXd &svd_cov_beta_u = decompose_covariance_matrix(cov_beta);
 	col_means_beta = col_means(beta_draws);
+	Lambda = create_lambda(svd_cov_beta_u);
     }
-
-    const Eigen::MatrixXd &Lambda = create_lambda(svd_cov_beta_u);
 
     std::vector<double> KLD(n_snps);
 
