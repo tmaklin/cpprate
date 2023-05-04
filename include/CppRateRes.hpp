@@ -206,9 +206,11 @@ inline Eigen::MatrixXd decompose_covariance_approximation(const Eigen::MatrixXd 
 
     svd<Eigen::MatrixXd>(covariance_matrix, svd_rank, &svd_U, &svd_V, &svd_singular_values);
 
-    std::vector<bool> r_D(svd_rank);
+    size_t dim_svd_res = svd_singular_values.size();
+    std::vector<bool> r_D(dim_svd_res);
+
     size_t num_r_D_set = 0;
-    for (size_t i = 0; i < svd_rank; ++i) {
+    for (size_t i = 0; i < dim_svd_res; ++i) {
 	r_D[i] = svd_singular_values[i] > 1e-10;
 	num_r_D_set += r_D[i];
     }
@@ -217,18 +219,19 @@ inline Eigen::MatrixXd decompose_covariance_approximation(const Eigen::MatrixXd 
     Eigen::MatrixXd U(num_r_D_set, n_rows_U);
 
     size_t k = 0;
-    for (size_t i = 0; i < svd_rank; ++i) {
+    for (size_t i = 0; i < dim_svd_res; ++i) {
 	if (r_D[i]) {
 	    for (size_t j = 0; j < n_rows_U; ++j) {
-		double leftside = std::exp(std::log(1.0) - std::log(std::sqrt(svd_singular_values[i])));
-		U(k, j) = leftside*svd_U(j, i);
+		double leftside = std::log(1.0) - std::log(std::sqrt(svd_singular_values[i]));
+		bool sign = (leftside > 0 && svd_U(j, i) > 0);
+		U(k, j) = (sign == 1 ? std::exp(leftside + std::log(std::abs(svd_U(j, i)))) : -std::exp(leftside + std::log(std::abs(svd_U(j, i)))));
 	    }
 	    ++k;
 	}
     }
     const Eigen::MatrixXd &inv_v = v.completeOrthogonalDecomposition().pseudoInverse();
 
-    return inv_v.adjoint()*(U.adjoint());
+    return (U*inv_v).adjoint();
 }
 
 inline Eigen::VectorXd col_means(const Eigen::MatrixXd &mat) {
@@ -236,7 +239,7 @@ inline Eigen::VectorXd col_means(const Eigen::MatrixXd &mat) {
 }
 
 inline Eigen::MatrixXd create_lambda(const Eigen::MatrixXd &U) {
-    return U.adjoint()*U;
+    return (U.adjoint()*U).adjoint();
 }
 
 inline double dropped_predictor_kld(const Eigen::MatrixXd &lambda, const Eigen::MatrixXd &cov_beta, const Eigen::VectorXd &mean_beta, const size_t predictor_id) {
