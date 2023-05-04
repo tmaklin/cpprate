@@ -318,7 +318,7 @@ TEST_F(LowrankTest, decompose_covariance_approximation) {
     // Check contents of `beta_draws_got`
     for (size_t i = 0; i < this->n_design_dim; ++i) {
 	for (size_t j = 0; j < this->num_nonzero_dims_expected; ++j) {
-	    EXPECT_NEAR(std::abs(svd_cov_u_got(i, j)), std::abs(proj_f_draws_svd_u_expected[i*this->rank_r + j]), this->test_tolerance);
+	    EXPECT_NEAR(std::abs(svd_cov_u_got(i, j)), std::abs(proj_f_draws_svd_u_expected[i*this->num_nonzero_dims_expected + j]), this->test_tolerance);
 	}
     }
 }
