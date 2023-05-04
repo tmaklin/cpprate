@@ -74,7 +74,8 @@ if(CMAKE_BUILD_TESTS)
   set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/bin)
   add_executable(runTests
     ${CMAKE_CURRENT_SOURCE_DIR}/test/src/CppRateRes_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/test/src/cpprate_integration_test.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/src/lowrank_integration_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/src/fullrank_integration_test.cpp)
   add_test(runTests runTests)
   target_link_libraries(runTests gtest gtest_main)
   if (OPENMP_FOUND)
