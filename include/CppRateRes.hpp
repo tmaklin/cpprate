@@ -306,18 +306,18 @@ Eigen::SparseMatrix<T> vec_to_sparse_matrix(const std::vector<V> &vec, const siz
 inline RATEd RATE(const size_t n_obs, const size_t n_snps, const size_t n_f_draws, const Eigen::SparseMatrix<double> &design_matrix, const Eigen::MatrixXd &f_draws, const bool low_rank=false, const size_t low_rank_rank=0) {
     // ## WARNING: Do not compile with -ffast-math
 
-    size_t svd_rank = std::min(n_obs, n_snps);
     const double prop_var = 1.0; // TODO email the authors if this is right (if prop.var == 1.0 the last component is always ignored)?
 
     Eigen::MatrixXd cov_beta;
     Eigen::VectorXd col_means_beta;
     Eigen::MatrixXd Lambda;
     if (low_rank) {
+	size_t svd_rank = (low_rank_rank == 0 ? std::min(n_obs, n_snps) : low_rank_rank);
 	Eigen::MatrixXd u;
 	Eigen::MatrixXd v;
 	decompose_design_matrix(design_matrix, svd_rank, prop_var, &u, &v);
 	const Eigen::MatrixXd &Sigma_star = project_f_draws(f_draws, u);
-	const Eigen::MatrixXd &svd_cov_beta_u = decompose_covariance_approximation(Sigma_star, v, low_rank_rank).adjoint(); // This does not work
+	const Eigen::MatrixXd &svd_cov_beta_u = decompose_covariance_approximation(Sigma_star, v, svd_rank).adjoint(); // This does not work
 	cov_beta = approximate_cov_beta(Sigma_star, v);
 	col_means_beta = approximate_beta_means(f_draws, u, v);
 	Lambda = create_lambda(svd_cov_beta_u);
