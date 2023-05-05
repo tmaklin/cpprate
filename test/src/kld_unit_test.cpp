@@ -39,7 +39,7 @@
 #include "CppRateRes.hpp"
 
 TEST_F(KldTest, sherman_r) {
-    const Eigen::MatrixXd &sherman_r_got = sherman_r(lambda_fullrank, cov_fullrank.col(1), cov_fullrank.col(1));
+    const Eigen::MatrixXd &sherman_r_got = sherman_r(lambda_fullrank, cov_fullrank.col(1));
 
     // Check dimensions of `sherman_r_got`
     EXPECT_EQ(sherman_r_got.rows(), this->n_design_dim);
@@ -55,6 +55,6 @@ TEST_F(KldTest, sherman_r) {
 
 TEST_F(KldTest, dropped_predictor_kld) {
     for (size_t i = 0; i < this->n_design_dim; ++i) {
-	EXPECT_NEAR(dropped_predictor_kld(lambda_fullrank, cov_fullrank, col_means_fullrank, i), this->expected_KLD[i], 1e-4);
+	EXPECT_NEAR(dropped_predictor_kld(lambda_fullrank, cov_fullrank.col(i), col_means_fullrank, i), this->expected_KLD[i], 1e-4);
     }
 }

@@ -59,10 +59,8 @@ public:
     }
 };
 
-inline Eigen::MatrixXd sherman_r(const Eigen::MatrixXd &ap, const Eigen::VectorXd &u, const Eigen::VectorXd &v) {
-    Eigen::MatrixXd nominator = ap * u * Eigen::Transpose<const Eigen::VectorXd>(v) * ap;
-    Eigen::MatrixXd denominator = Eigen::MatrixXd::Ones(ap.rows(), ap.cols()) + u * Eigen::Transpose<const Eigen::VectorXd>(v) * ap;
-    return (ap - (nominator.array()/denominator.array()).matrix());
+inline Eigen::MatrixXd sherman_r(const Eigen::MatrixXd &ap, const Eigen::VectorXd &u) {
+    return (ap - ( (ap * u * u.adjoint() * ap).array() / (1 + (u * u.adjoint() * ap).array())).matrix());
 }
 
 template <typename T>
@@ -225,9 +223,9 @@ inline Eigen::MatrixXd create_lambda(const Eigen::MatrixXd &U) {
     return U.adjoint()*U;
 }
 
-inline double dropped_predictor_kld(const Eigen::MatrixXd &lambda, const Eigen::MatrixXd &cov_beta, const Eigen::VectorXd &mean_beta, const size_t predictor_id) {
-    double m = std::abs(mean_beta[predictor_id]);
-    Eigen::MatrixXd U_Lambda_sub = sherman_r(lambda, cov_beta.col(predictor_id), cov_beta.col(predictor_id));
+inline double dropped_predictor_kld(const Eigen::MatrixXd &lambda, const Eigen::VectorXd &cov_beta_col, const Eigen::VectorXd &mean_beta, const size_t predictor_id) {
+    double log_m = std::log(std::abs(mean_beta[predictor_id]));
+    const Eigen::MatrixXd &U_Lambda_sub = sherman_r(lambda, cov_beta_col);
     Eigen::VectorXi dropped_predictor(mean_beta.size() - 1);
     size_t k = 0;
     for (size_t j = 0; j < mean_beta.size(); ++j) {
@@ -236,12 +234,13 @@ inline double dropped_predictor_kld(const Eigen::MatrixXd &lambda, const Eigen::
 	    ++k;
 	}
     }
-    Eigen::MatrixXd alpha = U_Lambda_sub(dropped_predictor, predictor_id).adjoint()*U_Lambda_sub(dropped_predictor, dropped_predictor)*U_Lambda_sub(dropped_predictor, predictor_id);
-    return 0.5*m*alpha(0, 0)*m;
+    const Eigen::MatrixXd &alpha = U_Lambda_sub(dropped_predictor, predictor_id).adjoint()*U_Lambda_sub(dropped_predictor, dropped_predictor)*U_Lambda_sub(dropped_predictor, predictor_id);
+    return std::exp(std::log(0.5) + log_m + std::log(alpha(0, 0)) + log_m);
 }
 
 inline std::vector<double> rate_from_kld(const std::vector<double> &kld, const double kld_sum) {
     std::vector<double> RATE(kld.size());
+#pragma omp parallel for schedule(static)
     for (size_t i = 0; i < kld.size(); ++i) {
 	RATE[i] = kld[i]/kld_sum;
     }
@@ -250,14 +249,17 @@ inline std::vector<double> rate_from_kld(const std::vector<double> &kld, const d
 
 inline double rate_delta(const std::vector<double> &RATE) {
     double Delta = 0.0;
-    for (size_t i = 0; i < RATE.size(); ++i) {
-	Delta += RATE[i]*std::log(RATE.size()*(RATE[i] + 1e-16));
+    size_t num_snps = RATE.size();
+#pragma omp parallel for schedule(static) reduction(+:Delta)
+    for (size_t i = 0; i < num_snps; ++i) {
+	Delta += RATE[i]*(std::log(num_snps) + std::log(RATE[i] + 1e-16));
     }
+
     return Delta;
 }
 
 inline double delta_to_ess(const double delta) {
-    return 1.0/(1.0 + delta)*100.0;
+    return std::exp(std::log(1.0) - std::log(1.0 + delta))*100.0;
 }
 
 inline Eigen::MatrixXd project_f_draws(const Eigen::MatrixXd &f_draws, const Eigen::MatrixXd &v) {
@@ -277,6 +279,7 @@ template <typename T>
 inline Eigen::MatrixXd vec_to_dense_matrix(const std::vector<T> &vec, const size_t n_rows, const size_t n_cols) {
     // TODO tests
     Eigen::MatrixXd mat(n_rows, n_cols);
+#pragma omp parallel for schedule(static)
     for (size_t i = 0; i < n_rows; ++i) {
 	for (size_t j = 0; j < n_cols; ++j) {
 	    mat(i, j) = (T)vec[i*n_cols + j];
@@ -298,6 +301,7 @@ Eigen::SparseMatrix<T> vec_to_sparse_matrix(const std::vector<V> &vec, const siz
 	    }
 	}
     }
+
     Eigen::SparseMatrix<T> mat(n_rows, n_cols);
     mat.setFromTriplets(triplet_list.begin(), triplet_list.end());
     return mat;
@@ -333,7 +337,7 @@ inline RATEd RATE(const size_t n_obs, const size_t n_snps, const size_t n_f_draw
 
     double KLD_sum = 0.0;
     for (size_t i = 0; i < n_snps; ++i) {
-	KLD[i] = dropped_predictor_kld(Lambda, cov_beta, col_means_beta, i);
+	KLD[i] = dropped_predictor_kld(Lambda, cov_beta.col(i), col_means_beta, i);
 	KLD_sum += KLD[i];
     }
 
