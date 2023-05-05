@@ -40,7 +40,7 @@ else()
   if(result)
     message(FATAL_ERROR "Build step for eigen failed: ${result}")
   endif()
-  set(CMAKE_EIGEN_HEADERS ${CMAKE_CURRENT_BINARY_DIR}/external/eigen/include)
+  set(CMAKE_EIGEN_HEADERS ${CMAKE_CURRENT_BINARY_DIR}/external/eigen)
 endif()
 include_directories(${CMAKE_EIGEN_HEADERS})
 
