@@ -39,8 +39,8 @@
 #include "CppRateRes.hpp"
 
 // Test cpprate
-TEST_F(DesignMatrixTest, sparsify_design_matrix) {
-    const Eigen::SparseMatrix<double> &mat = sparsify_design_matrix<double, bool>(this->n_obs, this->n_design_dim, this->design_matrix);
+TEST_F(DesignMatrixTest, vec_to_sparse_matrix) {
+    const Eigen::SparseMatrix<double> &mat = vec_to_sparse_matrix<double, bool>(this->design_matrix, this->n_obs, this->n_design_dim);
     for (size_t i = 0; i < this->n_obs; ++i) {
 	for (size_t j = 0; j < this->n_design_dim; ++j) {
 	    EXPECT_EQ(this->design_matrix[i*n_design_dim + j], mat.coeff(i, j));

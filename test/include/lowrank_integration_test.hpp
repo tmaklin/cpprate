@@ -39,7 +39,12 @@
 #include <cstddef>
 #include <vector>
 
+#include <Eigen/SparseCore>
+#include <Eigen/Dense>
+
 #include "gtest/gtest.h"
+
+#include "CppRateRes.hpp"
 
 class LowrankIntegrationTest : public ::testing::Test {
   protected:
@@ -51,7 +56,8 @@ class LowrankIntegrationTest : public ::testing::Test {
 	this->rank_r = 10;
 
 	// Input data
-	this->design_matrix = { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+	this->design_matrix = vec_to_sparse_matrix<double, bool>(std::vector<bool>(
+			      { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 				0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,
 				1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,
 				0,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,
@@ -60,8 +66,10 @@ class LowrankIntegrationTest : public ::testing::Test {
 				0,0,1,1,0,1,0,0,1,0,0,0,1,0,0,0,0,0,1,0,
 				0,0,0,0,0,0,1,0,0,0,1,0,1,0,0,0,0,1,0,0,
 				0,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,
-				0,0,0,0,0,0,0,0,0,0,0,1,0,0,1,0,0,0,0,0 };
-	this->f_draws = { -6.73547458213277,-0.300263985541422,-6.81470954432113,6.94318986278777,-5.44896509510378,-2.5366205703406,-1.24844768934632,8.77513237360593,-3.62467053670517,-0.489010242924885,
+				0,0,0,0,0,0,0,0,0,0,0,1,0,0,1,0,0,0,0,0
+			      }), this->n_obs, this->n_design_dim);
+	this->f_draws = vec_to_dense_matrix(std::vector<double>({
+		          -6.73547458213277,-0.300263985541422,-6.81470954432113,6.94318986278777,-5.44896509510378,-2.5366205703406,-1.24844768934632,8.77513237360593,-3.62467053670517,-0.489010242924885,
 			  -6.81121711079486,0.998915389057232,-4.38573784402282,8.82734941393486,-4.43614826756895,-4.01327768662203,-1.41498699340357,9.53057970875737,-1.77382997040734,-1.1475687354857,
 			  -11.262934255259,-0.810164429016605,-3.40483312131745,8.10505900545574,-4.75122561242841,-3.43652095823485,-0.580339883818108,6.73559624918973,-2.7181468122588,-1.68706486889551,
 			  -7.18460544796125,0.411101506842434,-3.69836773990994,8.44999767869517,-6.19478559245962,-3.43603443271895,-0.80173053102948,9.35368080747247,-1.9153097506837,0.224677487797558,
@@ -160,7 +168,8 @@ class LowrankIntegrationTest : public ::testing::Test {
 			  -9.38540962370249,-1.61399303760486,-4.85801719649106,7.32367557223145,-3.07482109039817,-5.30662488840436,-0.0960134744816779,9.251406575123,-2.9996086741383,-1.2146487064817,
 			  -9.33682255973776,0.703565385115437,-2.74282672205004,7.25337195483205,-5.0884862953915,-4.87045033355581,-1.4925912816456,8.93573427136695,-1.8015467505682,-1.54109088181852,
 			  -9.90160160251689,0.71191842567529,-4.2672694164969,8.74520795962353,-3.39613878709751,-5.97160846028749,0.386374248155131,8.16164839076611,-2.6808737299427,-0.84249110100532,
-			  -7.30610433687758,-1.11292889796795,-3.79580179012717,9.13856980899353,-4.78111293832235,-3.11861539671737,0.341072531319388,7.57812149238847,-3.83109100733496,-2.38914445286053 };
+			  -7.30610433687758,-1.11292889796795,-3.79580179012717,9.13856980899353,-4.78111293832235,-3.11861539671737,0.341072531319388,7.57812149238847,-3.83109100733496,-2.38914445286053 }),
+		this->n_f_draws, this->n_obs);
     }
 
     void TearDown() override {
@@ -169,10 +178,8 @@ class LowrankIntegrationTest : public ::testing::Test {
 	this->n_obs = 0;
 	this->rank_r = 0;
 
-	this->design_matrix.clear();
-	this->f_draws.clear();
-	this->design_matrix.shrink_to_fit();
-	this->f_draws.shrink_to_fit();
+	this->design_matrix.resize(0, 0);
+	this->f_draws.resize(0, 0);
     }
 
     // Test parameters
@@ -182,18 +189,14 @@ class LowrankIntegrationTest : public ::testing::Test {
     size_t rank_r;
 
     // Expected values
-    static double expected_ESS;
-    static double expected_Delta;
-    static std::vector<double> expected_RATE;
-    static std::vector<double> expected_KLD;
     static std::vector<double> expected_lr_KLD;
     static std::vector<double> expected_lr_RATE;
     static double expected_lr_ESS;
     static double expected_lr_Delta;
 
     // Input values
-    std::vector<bool> design_matrix; // 10x`n_design_dims` matrix stored contiguously
-    std::vector<double> f_draws; // 10x1 vector
+    Eigen::SparseMatrix<double> design_matrix; // 10x`n_design_dims` matrix stored contiguously
+    Eigen::MatrixXd f_draws; // 10x1 vector
 
 };
 std::vector<double> LowrankIntegrationTest::expected_lr_KLD = { 21.71027,2.068902,3.650794,3.650794,0,3.650794,45.89623,128.8632,3.650794,29.88688,51.7865,0.4324596,99.26313,128.8632,0.4324596,0,42.62561,0.07232973,3.650794,0 };

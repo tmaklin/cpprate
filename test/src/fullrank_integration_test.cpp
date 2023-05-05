@@ -34,8 +34,6 @@
 //
 #include "fullrank_integration_test.hpp"
 
-#include "CppRateRes.hpp"
-
 // Test fullrank ESS
 TEST_F(FullrankIntegrationTest, EssIsCorrect) {
     RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws);
