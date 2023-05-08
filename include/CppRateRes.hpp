@@ -43,6 +43,7 @@
 #include <cstddef>
 #include <cmath>
 #include <iostream>
+#include <numeric>
 
 struct RATEd {
 public:
@@ -59,9 +60,9 @@ public:
     }
 };
 
-inline Eigen::MatrixXd sherman_r(const Eigen::MatrixXd &ap, const Eigen::VectorXd &u) {
-    return (ap - ( (ap * u * u.adjoint() * ap).array() / (1 + (u * u.adjoint() * ap).array())).matrix());
-}
+// inline Eigen::MatrixXd sherman_r(const Eigen::MatrixXd &ap, const Eigen::VectorXd &u) {
+//     return (ap - ( (ap * u * u.adjoint() * ap).array() / (1 + (u * u.adjoint() * ap).array())).matrix());
+// }
 
 template <typename T>
 inline void svd(const T &design_matrix, const size_t svd_rank,
@@ -223,19 +224,119 @@ inline Eigen::MatrixXd create_lambda(const Eigen::MatrixXd &U) {
     return U.adjoint()*U;
 }
 
-inline double dropped_predictor_kld(const Eigen::MatrixXd &lambda, const Eigen::VectorXd &cov_beta_col, const Eigen::VectorXd &mean_beta, const size_t predictor_id) {
-    double log_m = std::log(std::abs(mean_beta[predictor_id]));
-    const Eigen::MatrixXd &U_Lambda_sub = sherman_r(lambda, cov_beta_col);
-    Eigen::VectorXi dropped_predictor(mean_beta.size() - 1);
-    size_t k = 0;
-    for (size_t j = 0; j < mean_beta.size(); ++j) {
-	if (j != predictor_id) {
-	    dropped_predictor[k] = j;
-	    ++k;
+// inline double dropped_predictor_kld(const Eigen::MatrixXd &lambda, const Eigen::VectorXd &cov_beta_col, const Eigen::VectorXd &mean_beta, const size_t predictor_id) {
+//     double log_m = std::log(std::abs(mean_beta[predictor_id]));
+//     const Eigen::MatrixXd &U_Lambda_sub = sherman_r(lambda, cov_beta_col);
+//     Eigen::VectorXi dropped_predictor(mean_beta.size() - 1);
+//     size_t k = 0;
+//     for (size_t j = 0; j < mean_beta.size(); ++j) {
+// 	if (j != predictor_id) {
+// 	    dropped_predictor[k] = j;
+// 	    ++k;
+// 	}
+//     }
+//     const Eigen::MatrixXd &alpha = U_Lambda_sub(dropped_predictor, predictor_id).adjoint()*U_Lambda_sub(dropped_predictor, dropped_predictor)*U_Lambda_sub(dropped_predictor, predictor_id);
+//     return std::exp(std::log(0.5) + log_m + std::log(alpha(0, 0)) + log_m);
+// }
+
+#pragma omp declare reduction(vec_double_plus : std::vector<double> :	\
+                              std::transform(omp_out.begin(), omp_out.end(), omp_in.begin(), omp_out.begin(), std::plus<double>())) \
+                    initializer(omp_priv = decltype(omp_orig)(omp_orig.size()))
+
+inline Eigen::MatrixXd sherman_r(const Eigen::MatrixXd &ap, const Eigen::VectorXd &u) {
+    // This function is a slower equivalent to:
+    //   return (ap - ( (ap * u * u.adjoint() * ap).array() / (1 + (u * u.adjoint() * ap).array())).matrix());
+    //
+    Eigen::MatrixXd res(u.size(), u.size());
+
+#pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < ap.rows(); ++i) {
+	double tmp = 0.0;
+	for (size_t j = 0; j < ap.cols(); ++j) {
+	    tmp += ap(j, i) * u(j); // `ap` is symmetric so doesn't matter which order it's traversed in
+	}
+	std::vector<double> nominators(u.size(), 0.0);
+	std::vector<double> denominators(u.size(), 1.0);
+	for (size_t k = 0; k < ap.cols(); k++) {
+	    for (size_t j = 0; j < u.size(); ++j) {
+		double lhs = tmp * u(j);
+		double lhs_denominator = u(i) * u(j);
+		nominators[k] += lhs * ap(j, k);
+		denominators[k] += lhs_denominator * ap(j, k);
+	    }
+	}
+	for (size_t j = 0; j < u.size(); ++j) {
+	    res(j, i) = ap(j, i) - nominators[j]/denominators[j]; // symmetry
 	}
     }
-    const Eigen::MatrixXd &alpha = U_Lambda_sub(dropped_predictor, predictor_id).adjoint()*U_Lambda_sub(dropped_predictor, dropped_predictor)*U_Lambda_sub(dropped_predictor, predictor_id);
-    return std::exp(std::log(0.5) + log_m + std::log(alpha(0, 0)) + log_m);
+
+    return res.adjoint(); // the loops above construct transpose of `res` to avoid cache misses
+}
+
+// inline double dropped_predictor_kld(const Eigen::MatrixXd &lambda, const Eigen::VectorXd &cov_beta_col, const Eigen::VectorXd &mean_beta, const size_t predictor_id) {
+//     double log_m = std::log(std::abs(mean_beta[predictor_id]));
+//     const Eigen::MatrixXd &U_Lambda_sub = sherman_r(lambda, cov_beta_col);
+
+//     double alpha = 0.0;
+
+// #pragma omp parallel for schedule(static) reduction(+:alpha)
+//     for (size_t k = 0; k < U_Lambda_sub.cols(); k++) {
+// 	if (k != predictor_id) {
+// 	    double tmp_sum = 0.0;
+// 	    for (size_t j = 0; j < U_Lambda_sub.rows(); ++j) {
+// 		if (j != predictor_id) {
+// 		    tmp_sum += U_Lambda_sub(j, predictor_id) * U_Lambda_sub(j, k);
+// 		}
+// 	    }
+// 	    alpha += tmp_sum * U_Lambda_sub(k, predictor_id);
+// 	}
+//     }
+
+//     return std::exp(std::log(0.5) + log_m + std::log(alpha) + log_m);
+// }
+
+inline double dropped_predictor_kld(const Eigen::MatrixXd &ap, const Eigen::VectorXd &u, const Eigen::VectorXd &mean_beta, const size_t predictor_id) {
+    double log_m = std::log(std::abs(mean_beta[predictor_id]));
+
+    std::vector<double> tmp_sums(u.size(), 0.0);
+    std::vector<double> predictor_sums(u.size(), 0.0);
+#pragma omp parallel for schedule(static) reduction(vec_double_plus:tmp_sums)
+    for (size_t i = 0; i < ap.rows(); ++i) {
+	if (i != predictor_id) {
+	    double tmp = 0.0;
+	    for (size_t j = 0; j < ap.cols(); ++j) {
+		tmp += ap(j, i) * u(j); // `ap` is symmetric so doesn't matter which order it's traversed in
+	    }
+	    std::vector<double> nominators(u.size(), 0.0);
+	    std::vector<double> denominators(u.size(), 1.0);
+	    for (size_t k = 0; k < ap.cols(); k++) {
+		for (size_t j = 0; j < u.size(); ++j) {
+		    double lhs = tmp * u(j);
+		    double lhs_denominator = u(i) * u(j);
+		    nominators[k] += lhs * ap(j, k);
+		    denominators[k] += lhs_denominator * ap(j, k);
+		}
+	    }
+	    double lhs = ap(predictor_id, i) - nominators[predictor_id]/denominators[predictor_id];
+	    predictor_sums[i] += lhs;
+	    for (size_t j = 0; j < u.size(); ++j) {
+		if (j != predictor_id) {
+		    double rhs = ap(j, i) - nominators[j]/denominators[j];
+		    tmp_sums[j] += lhs * rhs;
+		}
+	    }
+	}
+    }
+
+    double alpha = 0.0;
+#pragma omp parallel for schedule(static) reduction(+:alpha)
+    for (size_t k = 0; k < u.size(); k++) {
+	if (k != predictor_id) {
+	    alpha += tmp_sums[k] * predictor_sums[k];
+	}
+    }
+
+    return std::exp(std::log(0.5) + log_m + std::log(alpha) + log_m);
 }
 
 inline std::vector<double> rate_from_kld(const std::vector<double> &kld, const double kld_sum) {
