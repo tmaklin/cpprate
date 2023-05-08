@@ -45,6 +45,9 @@
 #include <iostream>
 #include <numeric>
 
+#include "cpprate_mpi_config.hpp"
+#include "MpiHandler.hpp"
+
 struct RATEd {
 public:
     double ESS;
@@ -231,6 +234,7 @@ inline double dropped_predictor_kld(const Eigen::MatrixXd &lambda, const Eigen::
 
     double alpha = 0.0;
 
+#pragma omp parallel for schedule(static) reduction(+:alpha)
     for (size_t k = 0; k < U_Lambda_sub.cols(); k++) {
 	if (k != predictor_id) {
 	    double tmp_sum = 0.0;
@@ -255,12 +259,12 @@ inline std::vector<double> rate_from_kld(const std::vector<double> &kld, const d
     return RATE;
 }
 
-inline double rate_delta(const std::vector<double> &RATE) {
+inline double rate_delta(const std::vector<double> &RATE, const size_t n_snps) {
     double Delta = 0.0;
     size_t num_snps = RATE.size();
 #pragma omp parallel for schedule(static) reduction(+:Delta)
     for (size_t i = 0; i < num_snps; ++i) {
-	Delta += RATE[i]*(std::log(num_snps) + std::log(RATE[i] + 1e-16));
+	Delta += RATE[i]*(std::log(n_snps) + std::log(RATE[i] + 1e-16));
     }
 
     return Delta;
@@ -315,7 +319,7 @@ Eigen::SparseMatrix<T> vec_to_sparse_matrix(const std::vector<V> &vec, const siz
     return mat;
 }
 
-inline RATEd RATE(const size_t n_obs, const size_t n_snps, const size_t n_f_draws, const Eigen::SparseMatrix<double> &design_matrix, const Eigen::MatrixXd &f_draws, const bool low_rank=false, const size_t low_rank_rank=0) {
+inline RATEd RATE(const size_t n_obs, size_t n_snps, const size_t n_f_draws, const Eigen::SparseMatrix<double> &design_matrix, const Eigen::MatrixXd &f_draws, const bool low_rank=false, const size_t low_rank_rank=0) {
     // ## WARNING: Do not compile with -ffast-math
 
     const double prop_var = 1.0; // TODO email the authors if this is right (if prop.var == 1.0 the last component is always ignored)?
@@ -329,7 +333,7 @@ inline RATEd RATE(const size_t n_obs, const size_t n_snps, const size_t n_f_draw
 	Eigen::MatrixXd v;
 	decompose_design_matrix(design_matrix, svd_rank, prop_var, &u, &v);
 	const Eigen::MatrixXd &Sigma_star = project_f_draws(f_draws, u);
-	const Eigen::MatrixXd &svd_cov_beta_u = decompose_covariance_approximation(Sigma_star, v, svd_rank).adjoint(); // This does not work
+	const Eigen::MatrixXd &svd_cov_beta_u = decompose_covariance_approximation(Sigma_star, v, svd_rank).adjoint();
 	cov_beta = approximate_cov_beta(Sigma_star, v);
 	col_means_beta = approximate_beta_means(f_draws, u, v);
 	Lambda = create_lambda(svd_cov_beta_u);
@@ -341,19 +345,77 @@ inline RATEd RATE(const size_t n_obs, const size_t n_snps, const size_t n_f_draw
 	Lambda = create_lambda(svd_cov_beta_u);
     }
 
-    std::vector<double> KLD(n_snps);
+    // Setup MPI
+    MpiHandler handler;
+    const int rank = handler.get_rank();
+    const int n_tasks = handler.get_n_tasks();
+    MPI_Bcast(&n_snps, 1, MPI_UNSIGNED_LONG_LONG, 0, MPI_COMM_WORLD);
 
-    double KLD_sum = 0.0;
-#pragma omp parallel for schedule(static) reduction(+:KLD_sum)
-    for (size_t i = 0; i < n_snps; ++i) {
-	KLD[i] = dropped_predictor_kld(Lambda, cov_beta.col(i), col_means_beta[i], i);
-	KLD_sum += KLD[i];
+    // Initialize variables for MPI
+    size_t n_snps_per_task = std::floor(n_snps/(double)n_tasks);
+
+    size_t start_id = rank * n_snps_per_task;
+    size_t end_id = std::min(n_snps, (rank + 1) * n_snps_per_task);
+    if (rank == (n_tasks - 1)) {
+	n_snps_per_task += n_snps - n_snps_per_task*n_tasks;
+	end_id = std::min(n_snps, (rank + 1) * n_snps_per_task);
     }
 
-    const std::vector<double> &RATE = rate_from_kld(KLD, KLD_sum);
-    const double Delta = rate_delta(RATE);
+    handler.initialize_1(n_snps);
+    const int* displacements_1 = handler.get_displacements();
+    const int* bufcounts_1 = handler.get_bufcounts();
 
-    const double ESS = delta_to_ess(Delta);
+    // Broadcast lambda to everyone
+    MPI_Bcast(Lambda.data(), Lambda.rows()*Lambda.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+    // Scatter covariance matrix columns
+    Eigen::MatrixXd cov_beta_cols(n_snps, n_snps_per_task);
+
+    MPI_Scatterv(cov_beta.data(), bufcounts_1, displacements_1, MPI_DOUBLE, cov_beta_cols.data(), n_snps*n_snps_per_task, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+    handler.initialize_2(n_snps);
+    const int* displacements_2 = handler.get_displacements();
+    const int* bufcounts_2 = handler.get_bufcounts();
+
+    // Scatter the col means
+    Eigen::VectorXd col_means_part(n_snps_per_task);
+    MPI_Scatterv(col_means_beta.data(), bufcounts_2, displacements_2, MPI_DOUBLE, col_means_part.data(), n_snps_per_task, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+    std::vector<double> KLD_partial(n_snps_per_task);
+    double KLD_sum_local = 0.0;
+    size_t index = 0;
+    for (size_t i = start_id; i < end_id; ++i) {
+	KLD_partial[index] = dropped_predictor_kld(Lambda, cov_beta_cols.col(index), col_means_part[index], i);
+	KLD_sum_local += KLD_partial[index];
+	++index;
+    }
+
+    double KLD_sum = 0.0;
+    MPI_Allreduce(&KLD_sum_local, &KLD_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+
+    const std::vector<double> &RATE_partial = rate_from_kld(KLD_partial, KLD_sum);
+
+    const double Delta_partial = rate_delta(RATE_partial, n_snps);
+
+    std::vector<double> KLD;
+    if (rank == 0) {
+	KLD.resize(n_snps);
+    }
+    MPI_Gatherv(&KLD_partial.front(), n_snps_per_task, MPI_DOUBLE, &KLD.front(), bufcounts_2, displacements_2, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+    std::vector<double> RATE;
+    if (rank == 0) {
+	RATE.resize(n_snps);
+    }
+    MPI_Gatherv(&RATE_partial.front(), n_snps_per_task, MPI_DOUBLE, &RATE.front(), bufcounts_2, displacements_2, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+    double Delta = 0.0;
+    MPI_Reduce(&Delta_partial, &Delta, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+
+    double ESS = 0.0;
+    if (rank == 0) {
+	ESS = delta_to_ess(Delta);
+    }
 
     return RATEd(ESS, Delta, RATE, KLD);
 }

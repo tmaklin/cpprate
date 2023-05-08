@@ -53,13 +53,13 @@ TEST_F(TransformedResultsTest, RATE) {
 TEST_F(TransformedResultsTest, Delta) {
     const std::vector<double> &RATE = rate_from_kld(this->KLD, this->KLD_sum);
 
-    const double delta_got = rate_delta(RATE);
+    const double delta_got = rate_delta(RATE, RATE.size());
     EXPECT_NEAR(delta_got, this->Delta_expected, this->test_tolerance);
 }
 
 TEST_F(TransformedResultsTest, ESS) {
     const std::vector<double> &RATE = rate_from_kld(this->KLD, this->KLD_sum);
-    const double delta = rate_delta(RATE);
+    const double delta = rate_delta(RATE, RATE.size());
 
     const double ess_got = delta_to_ess(delta);
     EXPECT_NEAR(ess_got, this->ESS_expected, this->test_tolerance);

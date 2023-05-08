@@ -103,16 +103,23 @@ int main(int argc, char* argv[]) {
   in2.close();
 
   const Eigen::SparseMatrix<double> &design_matrix = vec_to_sparse_matrix<double, bool>(X, n_obs, n_snps);
- 
+
+  int rc = MPI_Init(&argc, &argv);
   const RATEd &res = RATE(n_obs, n_snps, n_f_draws, design_matrix, f_draws_mat, !args.value<bool>("fullrank"));
 
-  std::cout << "#ESS: " << res.ESS << '\n';
-  std::cout << "#Delta: " << res.Delta << '\n';
-  std::cout << "#snp_id\tRATE\tKLD\n";
-  for (size_t i = 0; i < n_snps; ++i) {
-      std::cout << i << '\t' << res.RATE[i] << '\t' << res.KLD[i] << '\n';
+  int rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  if (rank == 0) {
+      std::cout << "#ESS: " << res.ESS << '\n';
+      std::cout << "#Delta: " << res.Delta << '\n';
+      std::cout << "#snp_id\tRATE\tKLD\n";
+      for (size_t i = 0; i < n_snps; ++i) {
+	  std::cout << i << '\t' << res.RATE[i] << '\t' << res.KLD[i] << '\n';
+      }
+      std::cout << std::endl;
   }
-  std::cout << std::endl;
+
+  rc = MPI_Finalize();
 
   return 0;
 }
