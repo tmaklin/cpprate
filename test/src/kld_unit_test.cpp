@@ -55,6 +55,6 @@ TEST_F(KldTest, sherman_r) {
 
 TEST_F(KldTest, dropped_predictor_kld) {
     for (size_t i = 0; i < this->n_design_dim; ++i) {
-	EXPECT_NEAR(dropped_predictor_kld(lambda_fullrank, cov_fullrank.col(i), col_means_fullrank, i), this->expected_KLD[i], 1e-4);
+	EXPECT_NEAR(dropped_predictor_kld(lambda_fullrank, cov_fullrank.col(i), col_means_fullrank[i], i), this->expected_KLD[i], 1e-4);
     }
 }
