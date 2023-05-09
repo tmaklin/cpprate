@@ -68,6 +68,14 @@ inline Eigen::MatrixXd sherman_r(const Eigen::MatrixXd &ap, const Eigen::VectorX
     return (ap - ( (ap * tmp).array() / (1 + (tmp).array())).matrix());
 }
 
+inline Eigen::MatrixXd sherman_r_lowrank(const Eigen::MatrixXd &ap, const Eigen::MatrixXd &Sigma_star, const Eigen::MatrixXd &v, const size_t predictor_id) {
+    Eigen::MatrixXd tmp = Eigen::MatrixXd::Zero(v.rows(), v.rows());
+    tmp.template selfadjointView<Eigen::Lower>().rankUpdate((v*Sigma_star*v.adjoint()).col(predictor_id).adjoint());
+    tmp = tmp * ap;
+    tmp = (ap - ( (ap * tmp).array() / (1 + (tmp).array())).matrix());
+    return tmp;
+}
+
 template <typename T>
 inline void svd(const T &design_matrix, const size_t svd_rank,
 		Eigen::MatrixXd *u, Eigen::MatrixXd *v, Eigen::VectorXd *d) {
@@ -142,7 +150,9 @@ inline Eigen::MatrixXd nonlinear_coefficients(const Eigen::SparseMatrix<double> 
 
 inline Eigen::MatrixXd covariance_matrix(const Eigen::MatrixXd &in) {
     const Eigen::MatrixXd &centered = in.rowwise() - in.colwise().mean();
-    return (centered.adjoint() * centered) / double(in.rows() - 1);
+    Eigen::MatrixXd tmp = Eigen::MatrixXd::Zero(in.rows(), in.rows());
+    tmp.template selfadjointView<Eigen::Lower>().rankUpdate(centered.adjoint());
+    return (tmp) / double(in.rows() - 1);
 }
 
 inline Eigen::MatrixXd decompose_covariance_matrix(const Eigen::MatrixXd &covariance_matrix) {
@@ -225,7 +235,9 @@ inline Eigen::VectorXd col_means(const Eigen::MatrixXd &mat) {
 }
 
 inline Eigen::MatrixXd create_lambda(const Eigen::MatrixXd &U) {
-    return U.adjoint()*U;
+    Eigen::MatrixXd lambda = Eigen::MatrixXd::Zero(U.cols(), U.cols());
+    lambda.template selfadjointView<Eigen::Lower>().rankUpdate(U.adjoint());
+    return lambda;
 }
 
 inline double dropped_predictor_kld(const Eigen::MatrixXd &lambda, const Eigen::VectorXd &cov_beta_col, const double mean_beta, const size_t predictor_id) {
@@ -244,6 +256,38 @@ inline double dropped_predictor_kld(const Eigen::MatrixXd &lambda, const Eigen::
 		}
 	    }
 	    alpha += tmp_sum * U_Lambda_sub(k, predictor_id);
+	}
+    }
+
+    return std::exp(std::log(0.5) + log_m + std::log(alpha) + log_m);
+}
+
+inline double dropped_predictor_kld_lowrank(const Eigen::MatrixXd &lambda, const Eigen::MatrixXd &Sigma_star, const Eigen::MatrixXd &v, const double mean_beta, const size_t predictor_id) {
+    double log_m = std::log(std::abs(mean_beta));
+    const Eigen::MatrixXd &U_Lambda_sub = sherman_r_lowrank(lambda, Sigma_star, v, predictor_id);
+
+    double alpha = 0.0;
+
+#pragma omp parallel for schedule(dynamic) reduction(+:alpha)
+    for (size_t k = 0; k < U_Lambda_sub.cols(); k++) {
+	if (k != predictor_id) {
+	    double tmp_sum = 0.0;
+	    for (size_t j = k; j < U_Lambda_sub.rows(); ++j) {
+		if (j != predictor_id) {
+		    if (predictor_id > j) {
+			tmp_sum += U_Lambda_sub(predictor_id, j) * U_Lambda_sub(j, k);
+			tmp_sum += U_Lambda_sub(predictor_id, j) * U_Lambda_sub(j, k);
+		    } else {
+			tmp_sum += U_Lambda_sub(j, predictor_id) * U_Lambda_sub(j, k);
+			tmp_sum += U_Lambda_sub(j, predictor_id) * U_Lambda_sub(j, k);
+		    }
+		}
+	    }
+	    if (predictor_id > k) {
+		alpha += tmp_sum * U_Lambda_sub(predictor_id, k);
+	    } else {
+		alpha += tmp_sum * U_Lambda_sub(k, predictor_id);
+	    }
 	}
     }
 
@@ -274,9 +318,10 @@ inline double delta_to_ess(const double delta) {
     return std::exp(std::log(1.0) - std::log(1.0 + delta))*100.0;
 }
 
-inline Eigen::MatrixXd project_f_draws(const Eigen::MatrixXd &f_draws, const Eigen::MatrixXd &v) {
-    const Eigen::MatrixXd &cov_f_draws = covariance_matrix(f_draws);
-    return v*cov_f_draws*v.adjoint();
+inline Eigen::MatrixXd project_f_draws(const Eigen::MatrixXd &in, const Eigen::MatrixXd &v) {
+    Eigen::MatrixXd tmp = Eigen::MatrixXd::Zero(v.rows(), v.rows());
+    tmp.template selfadjointView<Eigen::Lower>().rankUpdate(v*(in.rowwise() - in.colwise().mean()).adjoint());
+    return (tmp) / double(in.rows() - 1);
 }
 
 inline Eigen::MatrixXd approximate_cov_beta(const Eigen::MatrixXd &project_f_draws, const Eigen::MatrixXd &v) {
@@ -324,17 +369,21 @@ inline RATEd RATE(const size_t n_obs, size_t n_snps, const size_t n_f_draws, con
 
     const double prop_var = 1.0; // TODO email the authors if this is right (if prop.var == 1.0 the last component is always ignored)?
 
+    // Setup MPI
+    MpiHandler handler;
+    const int rank = handler.get_rank();
+    const int n_tasks = handler.get_n_tasks();
+
     Eigen::MatrixXd cov_beta;
     Eigen::VectorXd col_means_beta;
     Eigen::MatrixXd Lambda;
+    Eigen::MatrixXd v;
     if (low_rank) {
 	size_t svd_rank = (low_rank_rank == 0 ? std::min(n_obs, n_snps) : low_rank_rank);
 	Eigen::MatrixXd u;
-	Eigen::MatrixXd v;
 	decompose_design_matrix(design_matrix, svd_rank, prop_var, &u, &v);
-	const Eigen::MatrixXd &Sigma_star = project_f_draws(f_draws, u);
-	const Eigen::MatrixXd &svd_cov_beta_u = decompose_covariance_approximation(Sigma_star, v, svd_rank).adjoint();
-	cov_beta = approximate_cov_beta(Sigma_star, v);
+	cov_beta = std::move(project_f_draws(f_draws, u));
+	const Eigen::MatrixXd &svd_cov_beta_u = decompose_covariance_approximation(cov_beta, v, svd_rank).adjoint();
 	col_means_beta = approximate_beta_means(f_draws, u, v);
 	Lambda = create_lambda(svd_cov_beta_u);
     } else {
@@ -345,10 +394,6 @@ inline RATEd RATE(const size_t n_obs, size_t n_snps, const size_t n_f_draws, con
 	Lambda = create_lambda(svd_cov_beta_u);
     }
 
-    // Setup MPI
-    MpiHandler handler;
-    const int rank = handler.get_rank();
-    const int n_tasks = handler.get_n_tasks();
     MPI_Bcast(&n_snps, 1, MPI_UNSIGNED_LONG_LONG, 0, MPI_COMM_WORLD);
 
     // Initialize variables for MPI
@@ -361,17 +406,23 @@ inline RATEd RATE(const size_t n_obs, size_t n_snps, const size_t n_f_draws, con
 	end_id = std::min(n_snps, (rank + 1) * n_snps_per_task);
     }
 
-    handler.initialize_1(n_snps);
-    const int* displacements_1 = handler.get_displacements();
-    const int* bufcounts_1 = handler.get_bufcounts();
 
     // Broadcast lambda to everyone
     MPI_Bcast(Lambda.data(), Lambda.rows()*Lambda.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(v.data(), v.rows()*v.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
     // Scatter covariance matrix columns
-    Eigen::MatrixXd cov_beta_cols(n_snps, n_snps_per_task);
+    Eigen::MatrixXd cov_beta_cols(0, 0);
 
-    MPI_Scatterv(cov_beta.data(), bufcounts_1, displacements_1, MPI_DOUBLE, cov_beta_cols.data(), n_snps*n_snps_per_task, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    if (low_rank) {
+	MPI_Bcast(cov_beta.data(), cov_beta.rows()*cov_beta.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    } else {
+	handler.initialize_1(n_snps);
+	const int* displacements_1 = handler.get_displacements();
+	const int* bufcounts_1 = handler.get_bufcounts();
+	cov_beta_cols.resize(n_snps, n_snps_per_task);
+	MPI_Scatterv(cov_beta.data(), bufcounts_1, displacements_1, MPI_DOUBLE, cov_beta_cols.data(), n_snps*n_snps_per_task, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    }
 
     handler.initialize_2(n_snps);
     const int* displacements_2 = handler.get_displacements();
@@ -385,7 +436,11 @@ inline RATEd RATE(const size_t n_obs, size_t n_snps, const size_t n_f_draws, con
     double KLD_sum_local = 0.0;
     size_t index = 0;
     for (size_t i = start_id; i < end_id; ++i) {
-	KLD_partial[index] = dropped_predictor_kld(Lambda, cov_beta_cols.col(index), col_means_part[index], i);
+	if (low_rank) {
+	    KLD_partial[index] = dropped_predictor_kld_lowrank(Lambda, cov_beta, v, col_means_part[index], i);
+	} else {
+	    KLD_partial[index] = dropped_predictor_kld(Lambda, cov_beta_cols.col(index), col_means_part[index], i);
+	}
 	KLD_sum_local += KLD_partial[index];
 	++index;
     }
