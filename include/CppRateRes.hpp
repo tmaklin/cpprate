@@ -138,8 +138,11 @@ inline Eigen::MatrixXd nonlinear_coefficients(const Eigen::SparseMatrix<double> 
 }
 
 inline Eigen::MatrixXd covariance_matrix(const Eigen::MatrixXd &in) {
-    const Eigen::MatrixXd &centered = in.rowwise() - in.colwise().mean();
-    return (centered.adjoint() * centered) / double(in.rows() - 1);
+    Eigen::MatrixXd tmp = Eigen::MatrixXd::Zero(in.cols(), in.cols());
+    tmp.template selfadjointView<Eigen::Lower>().rankUpdate((in.rowwise() - in.colwise().mean()).adjoint());
+    tmp /= double(in.rows() - 1);
+    tmp.template triangularView<Eigen::Upper>() = tmp.transpose();
+    return tmp;
 }
 
 inline Eigen::MatrixXd decompose_covariance_matrix(const Eigen::MatrixXd &covariance_matrix) {
@@ -222,7 +225,10 @@ inline Eigen::VectorXd col_means(const Eigen::MatrixXd &mat) {
 }
 
 inline Eigen::MatrixXd create_lambda(const Eigen::MatrixXd &U) {
-    return U.adjoint()*U;
+    Eigen::MatrixXd tmp = Eigen::MatrixXd::Zero(U.cols(), U.cols());
+    tmp.template selfadjointView<Eigen::Lower>().rankUpdate(U.adjoint());
+    tmp.template triangularView<Eigen::Upper>() = tmp.transpose();
+    return tmp;
 }
 
 inline double dropped_predictor_kld(const Eigen::MatrixXd &lambda, const Eigen::VectorXd &cov_beta_col, const double mean_beta, const size_t predictor_id) {
