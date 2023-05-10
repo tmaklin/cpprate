@@ -23,6 +23,23 @@ if (OPENMP_FOUND)
   set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -D_GLIBCXX_PARALLEL")
 endif()
 
+### MPI
+if (CMAKE_ENABLE_MPI_SUPPORT)
+  find_package(MPI REQUIRED)
+  set(CPPRATE_MPI_SUPPORT 1)
+  message(STATUS "Found MPI includes in: ${MPI_C_INCLUDE_DIRS}")
+  include_directories(MPI_C_INCLUDE_DIRS)
+  if (CMAKE_MPI_MAX_PROCESSES)
+    set(CPPRATE_MPI_MAX_PROCESSES ${CMAKE_MPI_MAX_PROCESSES})
+  else()
+    set(CPPRATE_MPI_MAX_PROCESSES 1024)
+  endif()
+else()
+  set(CPPRATE_MPI_SUPPORT 0)
+endif()
+## Configure MPI if it's supported on the system.
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config/cpprate_mpi_config.hpp.in ${CMAKE_CURRENT_BINARY_DIR}/include/cpprate_mpi_config.hpp @ONLY)
+
 ## eigen
 if (DEFINED CMAKE_EIGEN_HEADERS)
   message(STATUS "eigen headers provided in: ${CMAKE_EIGEN_HEADERS}")
@@ -86,6 +103,9 @@ if(CMAKE_BUILD_TESTS)
   if (OPENMP_FOUND)
       target_link_libraries(runTests OpenMP::OpenMP_CXX)
     endif()
+  if (CMAKE_ENABLE_MPI_SUPPORT)
+    target_link_libraries(runTests MPI::MPI_CXX)
+  endif()
 endif()
 
 if(CMAKE_BUILD_EXECUTABLE)
@@ -93,7 +113,10 @@ if(CMAKE_BUILD_EXECUTABLE)
   add_executable(cpprate ${CMAKE_CURRENT_SOURCE_DIR}/src/cpprate.cpp)
   if (OPENMP_FOUND)
       target_link_libraries(cpprate OpenMP::OpenMP_CXX)
-    endif()
+  endif()
+  if (CMAKE_ENABLE_MPI_SUPPORT)
+    target_link_libraries(cpprate MPI::MPI_CXX)
+  endif()
 endif()
 
 ## cxxargs
@@ -117,5 +140,6 @@ else()
 endif()
 include_directories(${CMAKE_CXXARGS_HEADERS})
 
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include
+                    ${CMAKE_CURRENT_BINARY_DIR}/include)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/external/RedSVD)
