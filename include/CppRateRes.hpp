@@ -45,6 +45,30 @@
 #include <iostream>
 #include <numeric>
 
+inline std::vector<double> rate_from_kld(const std::vector<double> &kld, const double kld_sum) {
+    std::vector<double> RATE(kld.size());
+#pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < kld.size(); ++i) {
+	RATE[i] = kld[i]/kld_sum;
+    }
+    return RATE;
+}
+
+inline double rate_delta(const std::vector<double> &RATE) {
+    double Delta = 0.0;
+    size_t num_snps = RATE.size();
+#pragma omp parallel for schedule(static) reduction(+:Delta)
+    for (size_t i = 0; i < num_snps; ++i) {
+	Delta += RATE[i]*(std::log(num_snps) + std::log(RATE[i] + 1e-16));
+    }
+
+    return Delta;
+}
+
+inline double delta_to_ess(const double delta) {
+    return std::exp(std::log(1.0) - std::log(1.0 + delta))*100.0;
+}
+
 struct RATEd {
 public:
     double ESS;
@@ -59,6 +83,13 @@ public:
 	this->Delta = _Delta;
 	this->RATE = _RATE;
 	this->KLD = _KLD;
+    }
+
+    RATEd(std::vector<double> _KLD) {
+	this->KLD = _KLD;
+	this->RATE = rate_from_kld(KLD, std::accumulate(this->KLD.begin(), this->KLD.end(), 0.0));
+	this->Delta = rate_delta(RATE);
+	this->ESS = delta_to_ess(Delta);
     }
 };
 
@@ -294,30 +325,6 @@ inline double dropped_predictor_kld_lowrank(const Eigen::MatrixXd &svd_cov_beta_
     return std::exp(std::log(0.5) + log_m + std::log(alpha) + log_m);
 }
 
-inline std::vector<double> rate_from_kld(const std::vector<double> &kld, const double kld_sum) {
-    std::vector<double> RATE(kld.size());
-#pragma omp parallel for schedule(static)
-    for (size_t i = 0; i < kld.size(); ++i) {
-	RATE[i] = kld[i]/kld_sum;
-    }
-    return RATE;
-}
-
-inline double rate_delta(const std::vector<double> &RATE) {
-    double Delta = 0.0;
-    size_t num_snps = RATE.size();
-#pragma omp parallel for schedule(static) reduction(+:Delta)
-    for (size_t i = 0; i < num_snps; ++i) {
-	Delta += RATE[i]*(std::log(num_snps) + std::log(RATE[i] + 1e-16));
-    }
-
-    return Delta;
-}
-
-inline double delta_to_ess(const double delta) {
-    return std::exp(std::log(1.0) - std::log(1.0 + delta))*100.0;
-}
-
 inline Eigen::MatrixXd project_f_draws(const Eigen::MatrixXd &f_draws, const Eigen::MatrixXd &v) {
    // TODO investigate why the lowrank integration tests fail (floating point rounding; this one is more accurate?).
    // The unit test is fine so its probably nothing.
@@ -381,19 +388,12 @@ inline RATEd RATE_lowrank(const size_t n_obs, const size_t n_snps, const size_t 
 
     std::vector<double> KLD(n_snps);
 
-    double KLD_sum = 0.0;
-#pragma omp parallel for schedule(static) reduction(+:KLD_sum)
+#pragma omp parallel for schedule(static)
     for (size_t i = 0; i < n_snps; ++i) {
 	KLD[i] = dropped_predictor_kld_lowrank(svd_cov_beta_u, Sigma_star, svd_design_matrix_v, col_means_beta[i], i);
-	KLD_sum += KLD[i];
     }
 
-    const std::vector<double> &RATE = rate_from_kld(KLD, KLD_sum);
-    const double Delta = rate_delta(RATE);
-
-    const double ESS = delta_to_ess(Delta);
-
-    return RATEd(ESS, Delta, RATE, KLD);
+    return RATEd(KLD);
 }
 
 inline RATEd RATE_fullrank(const size_t n_obs, const size_t n_snps, const size_t n_f_draws, const Eigen::SparseMatrix<double> &design_matrix, const Eigen::MatrixXd &f_draws) {
@@ -414,19 +414,12 @@ inline RATEd RATE_fullrank(const size_t n_obs, const size_t n_snps, const size_t
 
     std::vector<double> KLD(n_snps);
 
-    double KLD_sum = 0.0;
-#pragma omp parallel for schedule(static) reduction(+:KLD_sum)
+#pragma omp parallel for schedule(static)
     for (size_t i = 0; i < n_snps; ++i) {
 	KLD[i] = dropped_predictor_kld(Lambda, cov_beta.col(i), col_means_beta[i], i);
-	KLD_sum += KLD[i];
     }
 
-    const std::vector<double> &RATE = rate_from_kld(KLD, KLD_sum);
-    const double Delta = rate_delta(RATE);
-
-    const double ESS = delta_to_ess(Delta);
-
-    return RATEd(ESS, Delta, RATE, KLD);
+    return RATEd(KLD);
 }
 
 #endif
