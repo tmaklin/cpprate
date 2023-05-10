@@ -106,7 +106,8 @@ int main(int argc, char* argv[]) {
 
   RATEd res;
   if (args.value<bool>("fullrank")) {
-      res = RATE_fullrank(n_obs, n_snps, n_f_draws, design_matrix, f_draws_mat);
+      const Eigen::MatrixXd &beta_draws = nonlinear_coefficients(design_matrix, f_draws_mat);
+      res = RATE_fullrank(beta_draws, n_snps);
   } else {
       res = RATE_lowrank(n_obs, n_snps, n_f_draws, design_matrix, f_draws_mat);
   }

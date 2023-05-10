@@ -396,21 +396,12 @@ inline RATEd RATE_lowrank(const size_t n_obs, const size_t n_snps, const size_t 
     return RATEd(KLD);
 }
 
-inline RATEd RATE_fullrank(const size_t n_obs, const size_t n_snps, const size_t n_f_draws, const Eigen::SparseMatrix<double> &design_matrix, const Eigen::MatrixXd &f_draws) {
+inline RATEd RATE_fullrank(const Eigen::MatrixXd &beta_draws, const size_t n_snps) {
     // ## WARNING: Do not compile with -ffast-math
 
-    const double prop_var = 1.0; // TODO email the authors if this is right (if prop.var == 1.0 the last component is always ignored)?
-
-    Eigen::MatrixXd cov_beta;
-    Eigen::VectorXd col_means_beta;
-    Eigen::MatrixXd Lambda;
-    Eigen::MatrixXd v;
-
-    const Eigen::MatrixXd &beta_draws = nonlinear_coefficients(design_matrix, f_draws);
-    cov_beta = covariance_matrix(beta_draws);
-    const Eigen::MatrixXd &svd_cov_beta_u = decompose_covariance_matrix(cov_beta);
-    col_means_beta = col_means(beta_draws);
-    Lambda = create_lambda(svd_cov_beta_u);
+    const Eigen::MatrixXd &cov_beta = covariance_matrix(beta_draws);
+    const Eigen::VectorXd &col_means_beta = col_means(beta_draws);
+    const Eigen::MatrixXd &Lambda = create_lambda(decompose_covariance_matrix(cov_beta));
 
     std::vector<double> KLD(n_snps);
 
