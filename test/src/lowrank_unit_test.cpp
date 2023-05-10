@@ -55,7 +55,7 @@ TEST_F(LowrankTest, covariance_matrix) {
 
 TEST_F(LowrankTest, project_f_draws) {
     const Eigen::MatrixXd &cov_f_draws = covariance_matrix(this->f_draws);
-    const Eigen::MatrixXd project_f_draws_got = project_f_draws(this->f_draws, this->svd_design_mat_u).selfadjointView<Eigen::Lower>();
+    const Eigen::MatrixXd &project_f_draws_got = project_f_draws(this->f_draws, this->svd_design_mat_u);
 
     // Check dimensions of `project_f_draws_got`
     EXPECT_EQ(project_f_draws_got.rows(), this->num_nonzero_dims_expected);
@@ -71,7 +71,7 @@ TEST_F(LowrankTest, project_f_draws) {
 
 TEST_F(LowrankTest, approximate_cov_beta) {
     const Eigen::MatrixXd &cov_f_draws = covariance_matrix(this->f_draws);
-    const Eigen::MatrixXd &proj_f_draws = project_f_draws(this->f_draws, this->svd_design_mat_u).selfadjointView<Eigen::Lower>();
+    const Eigen::SparseMatrix<double> &proj_f_draws = project_f_draws(this->f_draws, this->svd_design_mat_u);
 
     const Eigen::MatrixXd &cov_beta_got = approximate_cov_beta(proj_f_draws, this->svd_design_mat_v);
 
@@ -103,7 +103,7 @@ TEST_F(LowrankTest, approximate_beta_means) {
 
 TEST_F(LowrankTest, decompose_covariance_approximation) {
     const Eigen::MatrixXd &cov_f_draws = covariance_matrix(this->f_draws);
-    const Eigen::MatrixXd &proj_f_draws = project_f_draws(this->f_draws, this->svd_design_mat_u);
+    const Eigen::SparseMatrix<double> &proj_f_draws = project_f_draws(this->f_draws, this->svd_design_mat_u);
 
     const Eigen::MatrixXd svd_cov_u_got = decompose_covariance_approximation(proj_f_draws, this->svd_design_mat_v, this->rank_r);
 
@@ -121,7 +121,7 @@ TEST_F(LowrankTest, decompose_covariance_approximation) {
 
 TEST_F(LowrankTest, create_lambda) {
     const Eigen::MatrixXd &cov_f_draws = covariance_matrix(this->f_draws);
-    const Eigen::MatrixXd proj_f_draws = project_f_draws(this->f_draws, this->svd_design_mat_u);
+    const Eigen::SparseMatrix<double> proj_f_draws = project_f_draws(this->f_draws, this->svd_design_mat_u);
     const Eigen::MatrixXd svd_cov_u = decompose_covariance_approximation(proj_f_draws, this->svd_design_mat_v, this->rank_r);
 
     const Eigen::MatrixXd lambda_got = create_lambda(svd_cov_u.adjoint());

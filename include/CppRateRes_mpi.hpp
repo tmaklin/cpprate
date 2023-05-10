@@ -36,6 +36,7 @@
 #define CPPRATE_CPPRATERES_MPI_HPP
 
 #include <Eigen/SparseCore>
+#include <Eigen/Dense>
 
 #include "CppRateRes.hpp"
 
@@ -51,7 +52,7 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
     const int n_tasks = handler.get_n_tasks();
 
     Eigen::VectorXd col_means_beta;
-    Eigen::MatrixXd Sigma_star;
+    Eigen::SparseMatrix<double> Sigma_star;
     Eigen::MatrixXd svd_cov_beta_u;
     Eigen::MatrixXd svd_design_matrix_v;
     if (rank == 0) {
@@ -59,7 +60,7 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
 	decompose_design_matrix(design_matrix, svd_rank, prop_var, &u, &svd_design_matrix_v);
 
 	col_means_beta = std::move(approximate_beta_means(f_draws, u, svd_design_matrix_v));
-	Sigma_star = std::move(project_f_draws(f_draws, u));
+	Sigma_star = project_f_draws(f_draws, u);
 	svd_cov_beta_u = std::move(decompose_covariance_approximation(Sigma_star, svd_design_matrix_v, svd_rank).adjoint());
     }
     f_draws.resize(0, 0);
@@ -88,10 +89,13 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
     }
 
     // Broadcast variables needed by all processes
+    Eigen::MatrixXd tmp_mat = Sigma_star;
     MPI_Bcast(col_means_beta.data(), col_means_beta.size(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    MPI_Bcast(Sigma_star.data(), Sigma_star.rows()*Sigma_star.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(tmp_mat.data(), tmp_mat.rows()*tmp_mat.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Bcast(svd_cov_beta_u.data(), svd_cov_beta_u.rows()*svd_cov_beta_u.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Bcast(svd_design_matrix_v.data(), svd_design_matrix_v.rows()*svd_design_matrix_v.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    Sigma_star = tmp_mat.sparseView();
+    tmp_mat.resize(0, 0);
 
     // Initialize ranges for MPI
     size_t n_snps_per_task = std::floor(n_snps/(double)n_tasks);
@@ -105,7 +109,6 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
     std::vector<double> KLD_partial(n_snps_per_task);
     size_t index = 0;
     for (size_t i = start_id; i < end_id; ++i) {
-	std::cout << i << std::endl;
 	KLD_partial[index] = dropped_predictor_kld_lowrank(svd_cov_beta_u, Sigma_star, svd_design_matrix_v, col_means_beta[i], i);
 	++index;
     }

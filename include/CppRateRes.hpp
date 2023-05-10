@@ -98,7 +98,7 @@ inline Eigen::MatrixXd sherman_r(const Eigen::MatrixXd &ap, const Eigen::VectorX
     return (ap - ( (ap * tmp).array() / (1 + (tmp).array())).matrix());
 }
 
-inline Eigen::MatrixXd sherman_r_lowrank(const Eigen::MatrixXd &svd_cov_beta_u, const Eigen::MatrixXd &Sigma_star, const Eigen::MatrixXd &svd_cov_beta_v, const size_t predictor_id) {
+inline Eigen::MatrixXd sherman_r_lowrank(const Eigen::MatrixXd &svd_cov_beta_u, const Eigen::SparseMatrix<double> &Sigma_star, const Eigen::MatrixXd &svd_cov_beta_v, const size_t predictor_id) {
     // TODO: tests
     Eigen::MatrixXd Lambda = Eigen::MatrixXd::Zero(svd_cov_beta_u.cols(), svd_cov_beta_u.cols());
     Lambda.template selfadjointView<Eigen::Lower>().rankUpdate(svd_cov_beta_u.adjoint());
@@ -226,7 +226,7 @@ inline Eigen::MatrixXd decompose_covariance_matrix(const Eigen::MatrixXd &covari
     return u;
 }
 
-inline Eigen::MatrixXd decompose_covariance_approximation(const Eigen::MatrixXd &covariance_matrix, const Eigen::MatrixXd &v, const size_t svd_rank) {
+inline Eigen::MatrixXd decompose_covariance_approximation(const Eigen::SparseMatrix<double> &covariance_matrix, const Eigen::MatrixXd &v, const size_t svd_rank) {
     // Calculate the singular value decomposition of `design_matrix`
     // and return the submatrices of the decomposition that correspond
     // to nonzero eigenvalues AND explain `prop_var` of the total
@@ -236,7 +236,9 @@ inline Eigen::MatrixXd decompose_covariance_approximation(const Eigen::MatrixXd 
     Eigen::MatrixXd svd_U;
     Eigen::MatrixXd svd_V;
 
-    svd<Eigen::MatrixXd>(covariance_matrix.selfadjointView<Eigen::Lower>(), svd_rank, &svd_U, &svd_V, &svd_singular_values);
+    Eigen::MatrixXd dense = covariance_matrix;
+    dense.triangularView<Eigen::Upper>() = dense.transpose(); // TODO figure out what is wrong here
+    svd<Eigen::MatrixXd>(dense, svd_rank, &svd_U, &svd_V, &svd_singular_values);
 
     size_t dim_svd_res = svd_singular_values.size();
     std::vector<bool> r_D(dim_svd_res);
@@ -299,7 +301,7 @@ inline double dropped_predictor_kld(const Eigen::MatrixXd &lambda, const Eigen::
     return std::exp(std::log(0.5) + log_m + std::log(alpha) + log_m);
 }
 
-inline double dropped_predictor_kld_lowrank(const Eigen::MatrixXd &svd_cov_beta_u, const Eigen::MatrixXd &Sigma_star, const Eigen::MatrixXd &svd_cov_beta_v, const double mean_beta, const size_t predictor_id) {
+inline double dropped_predictor_kld_lowrank(const Eigen::MatrixXd &svd_cov_beta_u, const Eigen::SparseMatrix<double> &Sigma_star, const Eigen::MatrixXd &svd_cov_beta_v, const double mean_beta, const size_t predictor_id) {
     // TODO: tests
     double log_m = std::log(std::abs(mean_beta));
     const Eigen::MatrixXd &U_Lambda_sub = sherman_r_lowrank(svd_cov_beta_u, Sigma_star, svd_cov_beta_v, predictor_id);
@@ -322,13 +324,13 @@ inline double dropped_predictor_kld_lowrank(const Eigen::MatrixXd &svd_cov_beta_
     return std::exp(std::log(0.5) + log_m + std::log(alpha) + log_m);
 }
 
-inline Eigen::MatrixXd project_f_draws(const Eigen::MatrixXd &f_draws, const Eigen::MatrixXd &v) {
+inline Eigen::SparseMatrix<double> project_f_draws(const Eigen::MatrixXd &f_draws, const Eigen::MatrixXd &v) {
    // TODO investigate why the lowrank integration tests fail (floating point rounding; this one is more accurate?).
    // The unit test is fine so its probably nothing.
    Eigen::MatrixXd tmp = Eigen::MatrixXd::Zero(v.rows(), v.rows());
    tmp.template selfadjointView<Eigen::Lower>().rankUpdate(v*(f_draws.rowwise() - f_draws.colwise().mean()).adjoint());
    // tmp.template triangularView<Eigen::Upper>() = tmp.adjoint();
-   return (tmp) / double(f_draws.rows() - 1);
+   return ((tmp) / double(f_draws.rows() - 1)).sparseView();
 }
 
 inline Eigen::MatrixXd approximate_cov_beta(const Eigen::MatrixXd &project_f_draws, const Eigen::MatrixXd &v) {
@@ -379,7 +381,7 @@ inline RATEd RATE_lowrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMat
     decompose_design_matrix(design_matrix, svd_rank, prop_var, &u, &svd_design_matrix_v);
 
     const Eigen::VectorXd &col_means_beta = approximate_beta_means(f_draws, u, svd_design_matrix_v);
-    const Eigen::MatrixXd &Sigma_star = project_f_draws(f_draws, u);
+    const Eigen::SparseMatrix<double> &Sigma_star = project_f_draws(f_draws, u);
     const Eigen::MatrixXd &svd_cov_beta_u = decompose_covariance_approximation(Sigma_star, svd_design_matrix_v, svd_rank).adjoint();
 
     std::vector<double> KLD(n_snps);
