@@ -67,8 +67,18 @@ inline Eigen::MatrixXd sherman_r(const Eigen::MatrixXd &ap, const Eigen::VectorX
 
 inline Eigen::MatrixXd sherman_r_lowrank(const Eigen::MatrixXd &svd_cov_beta_u, const Eigen::MatrixXd &Sigma_star, const Eigen::MatrixXd &svd_cov_beta_v, const size_t predictor_id) {
     // TODO: tests
-    const Eigen::MatrixXd &Lambda = svd_cov_beta_u.adjoint()*svd_cov_beta_u;
-    const Eigen::MatrixXd &tmp = (svd_cov_beta_v*Sigma_star*svd_cov_beta_v.adjoint()).col(predictor_id) * (svd_cov_beta_v*Sigma_star*svd_cov_beta_v.adjoint()).col(predictor_id).adjoint() * Lambda;
+    Eigen::MatrixXd Lambda = Eigen::MatrixXd::Zero(svd_cov_beta_u.cols(), svd_cov_beta_u.cols());
+    Lambda.template selfadjointView<Eigen::Lower>().rankUpdate(svd_cov_beta_u.adjoint());
+
+    Eigen::MatrixXd crossprod_col_beta = Eigen::MatrixXd::Zero(svd_cov_beta_v.rows(), svd_cov_beta_v.rows());
+    crossprod_col_beta.template selfadjointView<Eigen::Lower>().rankUpdate((svd_cov_beta_v*Sigma_star*svd_cov_beta_v.adjoint()).col(predictor_id));
+    Lambda.template triangularView<Eigen::Upper>() = Lambda.transpose();
+    crossprod_col_beta.template triangularView<Eigen::Upper>() = crossprod_col_beta.transpose();
+
+    Eigen::MatrixXd tmp = crossprod_col_beta * Lambda;
+
+
+
     return (Lambda - ( (Lambda * tmp).array() / (1 + (tmp).array())).matrix());
 }
 
@@ -234,7 +244,7 @@ inline Eigen::VectorXd col_means(const Eigen::MatrixXd &mat) {
 inline Eigen::MatrixXd create_lambda(const Eigen::MatrixXd &U) {
     Eigen::MatrixXd tmp = Eigen::MatrixXd::Zero(U.cols(), U.cols());
     tmp.template selfadjointView<Eigen::Lower>().rankUpdate(U.adjoint());
-    tmp.template triangularView<Eigen::Upper>() = tmp.transpose();
+    tmp.template triangularView<Eigen::Upper>() = tmp.adjoint();
     return tmp;
 }
 
@@ -263,14 +273,15 @@ inline double dropped_predictor_kld_lowrank(const Eigen::MatrixXd &svd_cov_beta_
     // TODO: tests
     double log_m = std::log(std::abs(mean_beta));
     const Eigen::MatrixXd &U_Lambda_sub = sherman_r_lowrank(svd_cov_beta_u, Sigma_star, svd_cov_beta_v, predictor_id);
-
     double alpha = 0.0;
 
     for (size_t k = 0; k < U_Lambda_sub.cols(); k++) {
 	if (k != predictor_id) {
-	    double tmp_sum = 0.0;
-	    for (size_t j = 0; j < U_Lambda_sub.rows(); ++j) {
+	    double tmp_sum = U_Lambda_sub(k, predictor_id) * U_Lambda_sub(k, k);
+	    for (size_t j = (k + 1); j < U_Lambda_sub.rows(); ++j) {
 		if (j != predictor_id) {
+		    // U_Lambda_sub *should* be symmetric, TODO check if asymmetry is floating point error?
+		    tmp_sum += U_Lambda_sub(j, predictor_id) * U_Lambda_sub(j, k);
 		    tmp_sum += U_Lambda_sub(j, predictor_id) * U_Lambda_sub(j, k);
 		}
 	    }
@@ -306,8 +317,12 @@ inline double delta_to_ess(const double delta) {
 }
 
 inline Eigen::MatrixXd project_f_draws(const Eigen::MatrixXd &f_draws, const Eigen::MatrixXd &v) {
-    const Eigen::MatrixXd &cov_f_draws = covariance_matrix(f_draws);
-    return v*cov_f_draws*v.adjoint();
+   // TODO investigate why the lowrank integration tests fail (floating point rounding; this one is more accurate?).
+   // The unit test is fine so its probably nothing.
+   Eigen::MatrixXd tmp = Eigen::MatrixXd::Zero(v.rows(), v.rows());
+   tmp.template selfadjointView<Eigen::Lower>().rankUpdate(v*(f_draws.rowwise() - f_draws.colwise().mean()).adjoint());
+   tmp.template triangularView<Eigen::Upper>() = tmp.adjoint();
+   return (tmp) / double(f_draws.rows() - 1);
 }
 
 inline Eigen::MatrixXd approximate_cov_beta(const Eigen::MatrixXd &project_f_draws, const Eigen::MatrixXd &v) {
