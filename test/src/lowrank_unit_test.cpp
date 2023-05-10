@@ -55,7 +55,7 @@ TEST_F(LowrankTest, covariance_matrix) {
 
 TEST_F(LowrankTest, project_f_draws) {
     const Eigen::MatrixXd &cov_f_draws = covariance_matrix(this->f_draws);
-    const Eigen::MatrixXd project_f_draws_got = project_f_draws(this->f_draws, this->svd_design_mat_u);
+    const Eigen::MatrixXd project_f_draws_got = project_f_draws(this->f_draws, this->svd_design_mat_u).selfadjointView<Eigen::Lower>();
 
     // Check dimensions of `project_f_draws_got`
     EXPECT_EQ(project_f_draws_got.rows(), this->num_nonzero_dims_expected);
@@ -71,7 +71,7 @@ TEST_F(LowrankTest, project_f_draws) {
 
 TEST_F(LowrankTest, approximate_cov_beta) {
     const Eigen::MatrixXd &cov_f_draws = covariance_matrix(this->f_draws);
-    const Eigen::MatrixXd &proj_f_draws = project_f_draws(this->f_draws, this->svd_design_mat_u);
+    const Eigen::MatrixXd &proj_f_draws = project_f_draws(this->f_draws, this->svd_design_mat_u).selfadjointView<Eigen::Lower>();
 
     const Eigen::MatrixXd &cov_beta_got = approximate_cov_beta(proj_f_draws, this->svd_design_mat_v);
 

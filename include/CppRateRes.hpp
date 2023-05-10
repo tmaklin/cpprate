@@ -103,16 +103,13 @@ inline Eigen::MatrixXd sherman_r_lowrank(const Eigen::MatrixXd &svd_cov_beta_u, 
     Eigen::MatrixXd Lambda = Eigen::MatrixXd::Zero(svd_cov_beta_u.cols(), svd_cov_beta_u.cols());
     Lambda.template selfadjointView<Eigen::Lower>().rankUpdate(svd_cov_beta_u.adjoint());
 
-    Eigen::MatrixXd crossprod_col_beta = Eigen::MatrixXd::Zero(svd_cov_beta_v.rows(), svd_cov_beta_v.rows());
-    crossprod_col_beta.template selfadjointView<Eigen::Lower>().rankUpdate((svd_cov_beta_v*Sigma_star*svd_cov_beta_v.adjoint()).col(predictor_id));
-    Lambda.template triangularView<Eigen::Upper>() = Lambda.transpose();
-    crossprod_col_beta.template triangularView<Eigen::Upper>() = crossprod_col_beta.transpose();
+    Eigen::MatrixXd tmp = Eigen::MatrixXd::Zero(svd_cov_beta_v.rows(), svd_cov_beta_v.rows());
+    tmp.template selfadjointView<Eigen::Lower>().rankUpdate((svd_cov_beta_v*Sigma_star.triangularView<Eigen::Lower>()*svd_cov_beta_v.adjoint().col(predictor_id)));
+    tmp.noalias() = tmp * Lambda.triangularView<Eigen::Lower>();
+    tmp = Lambda - ( ( Lambda.triangularView<Eigen::Lower>() * tmp ).array() / ( 1 + (tmp).array())).matrix();
+    tmp.triangularView<Eigen::Upper>() = tmp.transpose();
 
-    Eigen::MatrixXd tmp = crossprod_col_beta * Lambda;
-
-
-
-    return (Lambda - ( (Lambda * tmp).array() / (1 + (tmp).array())).matrix());
+    return tmp;
 }
 
 template <typename T>
@@ -239,7 +236,7 @@ inline Eigen::MatrixXd decompose_covariance_approximation(const Eigen::MatrixXd 
     Eigen::MatrixXd svd_U;
     Eigen::MatrixXd svd_V;
 
-    svd<Eigen::MatrixXd>(covariance_matrix, svd_rank, &svd_U, &svd_V, &svd_singular_values);
+    svd<Eigen::MatrixXd>(covariance_matrix.selfadjointView<Eigen::Lower>(), svd_rank, &svd_U, &svd_V, &svd_singular_values);
 
     size_t dim_svd_res = svd_singular_values.size();
     std::vector<bool> r_D(dim_svd_res);
@@ -330,7 +327,7 @@ inline Eigen::MatrixXd project_f_draws(const Eigen::MatrixXd &f_draws, const Eig
    // The unit test is fine so its probably nothing.
    Eigen::MatrixXd tmp = Eigen::MatrixXd::Zero(v.rows(), v.rows());
    tmp.template selfadjointView<Eigen::Lower>().rankUpdate(v*(f_draws.rowwise() - f_draws.colwise().mean()).adjoint());
-   tmp.template triangularView<Eigen::Upper>() = tmp.adjoint();
+   // tmp.template triangularView<Eigen::Upper>() = tmp.adjoint();
    return (tmp) / double(f_draws.rows() - 1);
 }
 
