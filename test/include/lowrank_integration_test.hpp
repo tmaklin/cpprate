@@ -54,6 +54,7 @@ class LowrankIntegrationTest : public ::testing::Test {
 	this->n_f_draws = 100;
 	this->n_obs = 10;
 	this->rank_r = 10;
+	this->prop_var = 1.0;
 
 	// Input data
 	this->design_matrix = vec_to_sparse_matrix<double, bool>(std::vector<bool>(
@@ -177,6 +178,7 @@ class LowrankIntegrationTest : public ::testing::Test {
 	this->n_f_draws = 0;
 	this->n_obs = 0;
 	this->rank_r = 0;
+	this->prop_var = 0.0;
 
 	this->design_matrix.resize(0, 0);
 	this->f_draws.resize(0, 0);
@@ -187,6 +189,7 @@ class LowrankIntegrationTest : public ::testing::Test {
     size_t n_f_draws;
     size_t n_obs;
     size_t rank_r;
+    double prop_var;
 
     // Expected values
     static std::vector<double> expected_lr_KLD;

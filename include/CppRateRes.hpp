@@ -374,14 +374,13 @@ Eigen::SparseMatrix<T> vec_to_sparse_matrix(const std::vector<V> &vec, const siz
     return mat;
 }
 
-inline RATEd RATE_lowrank(const size_t n_obs, const size_t n_snps, const size_t n_f_draws, const Eigen::SparseMatrix<double> &design_matrix, const Eigen::MatrixXd &f_draws, const size_t approximation_rank=0) {
+inline RATEd RATE_lowrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMatrix<double> &design_matrix, const size_t n_snps, const size_t svd_rank, const double prop_var) {
     // ## WARNING: Do not compile with -ffast-math
 
-    const double prop_var = 1.0; // TODO email the authors if this is right (if prop.var == 1.0 the last component is always ignored)?
-    size_t svd_rank = (approximation_rank == 0 ? std::min(n_obs, n_snps) : approximation_rank);
     Eigen::MatrixXd u;
     Eigen::MatrixXd svd_design_matrix_v;
     decompose_design_matrix(design_matrix, svd_rank, prop_var, &u, &svd_design_matrix_v);
+
     const Eigen::VectorXd &col_means_beta = approximate_beta_means(f_draws, u, svd_design_matrix_v);
     const Eigen::MatrixXd &Sigma_star = project_f_draws(f_draws, u);
     const Eigen::MatrixXd &svd_cov_beta_u = decompose_covariance_approximation(Sigma_star, svd_design_matrix_v, svd_rank).adjoint();
@@ -396,8 +395,10 @@ inline RATEd RATE_lowrank(const size_t n_obs, const size_t n_snps, const size_t 
     return RATEd(KLD);
 }
 
-inline RATEd RATE_fullrank(const Eigen::MatrixXd &beta_draws, const size_t n_snps) {
+inline RATEd RATE_fullrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMatrix<double> &design_matrix, const size_t n_snps) {
     // ## WARNING: Do not compile with -ffast-math
+
+    Eigen::MatrixXd beta_draws = std::move(nonlinear_coefficients(design_matrix, f_draws));
 
     const Eigen::MatrixXd &cov_beta = covariance_matrix(beta_draws);
     const Eigen::VectorXd &col_means_beta = col_means(beta_draws);

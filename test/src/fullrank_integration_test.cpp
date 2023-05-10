@@ -36,22 +36,19 @@
 
 // Test fullrank ESS
 TEST_F(FullrankIntegrationTest, EssIsCorrect) {
-    const Eigen::MatrixXd &beta_draws = nonlinear_coefficients(this->design_matrix, this->f_draws);
-    RATEd res = RATE_fullrank(beta_draws, this->n_design_dim);
+    RATEd res = RATE_fullrank(this->f_draws, this->design_matrix, this->n_design_dim);
     EXPECT_NEAR(res.ESS, this->expected_ESS, 1e-7);
 }
 
 // Test fullrank Delta
 TEST_F(FullrankIntegrationTest, DeltaIsCorrect) {
-    const Eigen::MatrixXd &beta_draws = nonlinear_coefficients(this->design_matrix, this->f_draws);
-    RATEd res = RATE_fullrank(beta_draws, this->n_design_dim);
+    RATEd res = RATE_fullrank(this->f_draws, this->design_matrix, this->n_design_dim);
     EXPECT_NEAR(res.Delta, this->expected_Delta, 1e-7);
 }
 
 // Test fullrank RATE
 TEST_F(FullrankIntegrationTest, RateIsCorrect) {
-    const Eigen::MatrixXd &beta_draws = nonlinear_coefficients(this->design_matrix, this->f_draws);
-    RATEd res = RATE_fullrank(beta_draws, this->n_design_dim);
+    RATEd res = RATE_fullrank(this->f_draws, this->design_matrix, this->n_design_dim);
     for (size_t i = 0; i < n_design_dim; ++i) {
 	EXPECT_NEAR(res.RATE[i], this->expected_RATE[i], 1e-7);
     }
@@ -60,8 +57,7 @@ TEST_F(FullrankIntegrationTest, RateIsCorrect) {
 
 // Test fullrank KLD
 TEST_F(FullrankIntegrationTest, KldIsCorrect) {
-    const Eigen::MatrixXd &beta_draws = nonlinear_coefficients(this->design_matrix, this->f_draws);
-    RATEd res = RATE_fullrank(beta_draws, this->n_design_dim);
+    RATEd res = RATE_fullrank(this->f_draws, this->design_matrix, this->n_design_dim);
     for (size_t i = 0; i < n_design_dim; ++i) {
 	EXPECT_NEAR(res.KLD[i], this->expected_KLD[i], 1e-7);
     }

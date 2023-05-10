@@ -106,10 +106,11 @@ int main(int argc, char* argv[]) {
 
   RATEd res;
   if (args.value<bool>("fullrank")) {
-      const Eigen::MatrixXd &beta_draws = nonlinear_coefficients(design_matrix, f_draws_mat);
-      res = RATE_fullrank(beta_draws, n_snps);
+      res = RATE_fullrank(f_draws_mat, design_matrix, n_snps);
   } else {
-      res = RATE_lowrank(n_obs, n_snps, n_f_draws, design_matrix, f_draws_mat);
+      const double prop_var = 1.0; // (if prop.var == 1.0 the last component is always ignored)?
+      size_t svd_rank = std::min(n_obs, n_snps);
+      res = RATE_lowrank(f_draws_mat, design_matrix, n_snps, svd_rank, prop_var);
   }
 
   std::cout << "#ESS: " << res.ESS << '\n';
