@@ -36,19 +36,19 @@
 
 // Test fullrank ESS
 TEST_F(FullrankIntegrationTest, EssIsCorrect) {
-    RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws);
+    RATEd res = RATE_fullrank(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws);
     EXPECT_NEAR(res.ESS, this->expected_ESS, 1e-7);
 }
 
 // Test fullrank Delta
 TEST_F(FullrankIntegrationTest, DeltaIsCorrect) {
-    RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws);
+    RATEd res = RATE_fullrank(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws);
     EXPECT_NEAR(res.Delta, this->expected_Delta, 1e-7);
 }
 
 // Test fullrank RATE
 TEST_F(FullrankIntegrationTest, RateIsCorrect) {
-    RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws);
+    RATEd res = RATE_fullrank(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws);
     for (size_t i = 0; i < n_design_dim; ++i) {
 	EXPECT_NEAR(res.RATE[i], this->expected_RATE[i], 1e-7);
     }
@@ -57,7 +57,7 @@ TEST_F(FullrankIntegrationTest, RateIsCorrect) {
 
 // Test fullrank KLD
 TEST_F(FullrankIntegrationTest, KldIsCorrect) {
-    RATEd res = RATE(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws);
+    RATEd res = RATE_fullrank(this->n_obs, this->n_design_dim, this->n_f_draws, this->design_matrix, this->f_draws);
     for (size_t i = 0; i < n_design_dim; ++i) {
 	EXPECT_NEAR(res.KLD[i], this->expected_KLD[i], 1e-7);
     }

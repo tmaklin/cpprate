@@ -52,6 +52,8 @@ public:
     std::vector<double> RATE;
     std::vector<double> KLD;
 
+    RATEd() = default;
+
     RATEd(double _ESS, double _Delta, std::vector<double> _RATE, std::vector<double> _KLD) {
 	this->ESS = _ESS;
 	this->Delta = _Delta;
@@ -365,7 +367,36 @@ Eigen::SparseMatrix<T> vec_to_sparse_matrix(const std::vector<V> &vec, const siz
     return mat;
 }
 
-inline RATEd RATE(const size_t n_obs, const size_t n_snps, const size_t n_f_draws, const Eigen::SparseMatrix<double> &design_matrix, const Eigen::MatrixXd &f_draws, const bool low_rank=false, const size_t low_rank_rank=0) {
+inline RATEd RATE_lowrank(const size_t n_obs, const size_t n_snps, const size_t n_f_draws, const Eigen::SparseMatrix<double> &design_matrix, const Eigen::MatrixXd &f_draws, const size_t approximation_rank=0) {
+    // ## WARNING: Do not compile with -ffast-math
+
+    const double prop_var = 1.0; // TODO email the authors if this is right (if prop.var == 1.0 the last component is always ignored)?
+    size_t svd_rank = (approximation_rank == 0 ? std::min(n_obs, n_snps) : approximation_rank);
+    Eigen::MatrixXd u;
+    Eigen::MatrixXd svd_design_matrix_v;
+    decompose_design_matrix(design_matrix, svd_rank, prop_var, &u, &svd_design_matrix_v);
+    const Eigen::VectorXd &col_means_beta = approximate_beta_means(f_draws, u, svd_design_matrix_v);
+    const Eigen::MatrixXd &Sigma_star = project_f_draws(f_draws, u);
+    const Eigen::MatrixXd &svd_cov_beta_u = decompose_covariance_approximation(Sigma_star, svd_design_matrix_v, svd_rank).adjoint();
+
+    std::vector<double> KLD(n_snps);
+
+    double KLD_sum = 0.0;
+#pragma omp parallel for schedule(static) reduction(+:KLD_sum)
+    for (size_t i = 0; i < n_snps; ++i) {
+	KLD[i] = dropped_predictor_kld_lowrank(svd_cov_beta_u, Sigma_star, svd_design_matrix_v, col_means_beta[i], i);
+	KLD_sum += KLD[i];
+    }
+
+    const std::vector<double> &RATE = rate_from_kld(KLD, KLD_sum);
+    const double Delta = rate_delta(RATE);
+
+    const double ESS = delta_to_ess(Delta);
+
+    return RATEd(ESS, Delta, RATE, KLD);
+}
+
+inline RATEd RATE_fullrank(const size_t n_obs, const size_t n_snps, const size_t n_f_draws, const Eigen::SparseMatrix<double> &design_matrix, const Eigen::MatrixXd &f_draws) {
     // ## WARNING: Do not compile with -ffast-math
 
     const double prop_var = 1.0; // TODO email the authors if this is right (if prop.var == 1.0 the last component is always ignored)?
@@ -374,34 +405,19 @@ inline RATEd RATE(const size_t n_obs, const size_t n_snps, const size_t n_f_draw
     Eigen::VectorXd col_means_beta;
     Eigen::MatrixXd Lambda;
     Eigen::MatrixXd v;
-    if (low_rank) {
-	size_t svd_rank = (low_rank_rank == 0 ? std::min(n_obs, n_snps) : low_rank_rank);
-	Eigen::MatrixXd u;
-	decompose_design_matrix(design_matrix, svd_rank, prop_var, &u, &v);
-	// cov_beta = Sigma_star
-        cov_beta = std::move(project_f_draws(f_draws, u));
-	Lambda = std::move(decompose_covariance_approximation(cov_beta, v, svd_rank).adjoint());
-	// cov_beta = approximate_cov_beta(cov_beta, v);
-	col_means_beta = approximate_beta_means(f_draws, u, v);
-	// Lambda = create_lambda(svd_cov_beta_u);
-    } else {
-	const Eigen::MatrixXd &beta_draws = nonlinear_coefficients(design_matrix, f_draws);
-	cov_beta = covariance_matrix(beta_draws);
-	const Eigen::MatrixXd &svd_cov_beta_u = decompose_covariance_matrix(cov_beta);
-	col_means_beta = col_means(beta_draws);
-	Lambda = create_lambda(svd_cov_beta_u);
-    }
+
+    const Eigen::MatrixXd &beta_draws = nonlinear_coefficients(design_matrix, f_draws);
+    cov_beta = covariance_matrix(beta_draws);
+    const Eigen::MatrixXd &svd_cov_beta_u = decompose_covariance_matrix(cov_beta);
+    col_means_beta = col_means(beta_draws);
+    Lambda = create_lambda(svd_cov_beta_u);
 
     std::vector<double> KLD(n_snps);
 
     double KLD_sum = 0.0;
 #pragma omp parallel for schedule(static) reduction(+:KLD_sum)
     for (size_t i = 0; i < n_snps; ++i) {
-	if (low_rank) {
-	    KLD[i] = dropped_predictor_kld_lowrank(Lambda, cov_beta, v, col_means_beta[i], i);
-	} else {	    
-	    KLD[i] = dropped_predictor_kld(Lambda, cov_beta.col(i), col_means_beta[i], i);
-	}
+	KLD[i] = dropped_predictor_kld(Lambda, cov_beta.col(i), col_means_beta[i], i);
 	KLD_sum += KLD[i];
     }
 
