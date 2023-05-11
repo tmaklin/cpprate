@@ -102,7 +102,7 @@ inline Eigen::MatrixXd sherman_r_lowrank(const Eigen::MatrixXd &Lambda, const Ei
     // TODO: tests
     Eigen::MatrixXd tmp = std::move(Eigen::MatrixXd::Zero(svd_cov_beta_v.rows(), svd_cov_beta_v.rows()));
     tmp.template selfadjointView<Eigen::Lower>().rankUpdate((svd_cov_beta_v*Sigma_star.triangularView<Eigen::Lower>()*svd_cov_beta_v.adjoint().col(predictor_id)));
-    tmp.noalias() = tmp * Lambda.triangularView<Eigen::Lower>();
+    tmp *= Lambda.triangularView<Eigen::Lower>();
     tmp.array() = ( Lambda.triangularView<Eigen::Lower>() * tmp ).array() / ( 1 + (tmp).array());
 
     return tmp;
