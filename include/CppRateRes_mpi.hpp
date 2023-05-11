@@ -53,38 +53,38 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
 
     Eigen::VectorXd col_means_beta;
     Eigen::SparseMatrix<double> Sigma_star;
-    Eigen::MatrixXd svd_cov_beta_u;
+    Eigen::MatrixXd Lambda;
     Eigen::MatrixXd svd_design_matrix_v;
     if (rank == 0) {
 	Eigen::MatrixXd u;
 	decompose_design_matrix(design_matrix, svd_rank, prop_var, &u, &svd_design_matrix_v);
-
+	Lambda = std::move(Eigen::MatrixXd::Zero(n_snps, n_snps));
 	col_means_beta = std::move(approximate_beta_means(f_draws, u, svd_design_matrix_v));
 	Sigma_star = project_f_draws(f_draws, u);
-	svd_cov_beta_u = std::move(decompose_covariance_approximation(Sigma_star, svd_design_matrix_v, svd_rank).adjoint());
+	Lambda.template selfadjointView<Eigen::Lower>().rankUpdate(decompose_covariance_approximation(Sigma_star, svd_design_matrix_v, svd_rank));
     }
     f_draws.resize(0, 0);
     design_matrix.resize(0, 0);
 
     size_t Sigma_star_rows = Sigma_star.rows();
     size_t Sigma_star_cols = Sigma_star.rows();
-    size_t svd_cov_beta_u_rows = svd_cov_beta_u.rows();
-    size_t svd_cov_beta_u_cols = svd_cov_beta_u.cols();
+    size_t Lambda_rows = Lambda.rows();
+    size_t Lambda_cols = Lambda.cols();
     size_t svd_design_matrix_v_rows = svd_design_matrix_v.rows();
     size_t svd_design_matrix_v_cols = svd_design_matrix_v.rows();
 
     // Broadcast sizes
     MPI_Bcast(&Sigma_star_rows, 1, MPI_UNSIGNED_LONG_LONG, 0, MPI_COMM_WORLD);
     MPI_Bcast(&Sigma_star_cols, 1, MPI_UNSIGNED_LONG_LONG, 0, MPI_COMM_WORLD);
-    MPI_Bcast(&svd_cov_beta_u_rows, 1, MPI_UNSIGNED_LONG_LONG, 0, MPI_COMM_WORLD);
-    MPI_Bcast(&svd_cov_beta_u_cols, 1, MPI_UNSIGNED_LONG_LONG, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&Lambda_rows, 1, MPI_UNSIGNED_LONG_LONG, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&Lambda_cols, 1, MPI_UNSIGNED_LONG_LONG, 0, MPI_COMM_WORLD);
     MPI_Bcast(&svd_design_matrix_v_rows, 1, MPI_UNSIGNED_LONG_LONG, 0, MPI_COMM_WORLD);
     MPI_Bcast(&svd_design_matrix_v_cols, 1, MPI_UNSIGNED_LONG_LONG, 0, MPI_COMM_WORLD);
 
     if (rank != 0) {
 	col_means_beta.resize(n_snps);
 	Sigma_star.resize(Sigma_star_rows, Sigma_star_cols);
-	svd_cov_beta_u.resize(svd_cov_beta_u_rows, svd_cov_beta_u_cols);
+	Lambda.resize(Lambda_rows, Lambda_cols);
 	svd_design_matrix_v.resize(svd_design_matrix_v_rows, svd_design_matrix_v_cols);
     }
 
@@ -92,7 +92,7 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
     Eigen::MatrixXd tmp_mat = Sigma_star;
     MPI_Bcast(col_means_beta.data(), col_means_beta.size(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Bcast(tmp_mat.data(), tmp_mat.rows()*tmp_mat.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    MPI_Bcast(svd_cov_beta_u.data(), svd_cov_beta_u.rows()*svd_cov_beta_u.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(Lambda.data(), Lambda.rows()*Lambda.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Bcast(svd_design_matrix_v.data(), svd_design_matrix_v.rows()*svd_design_matrix_v.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
     Sigma_star = tmp_mat.sparseView();
     tmp_mat.resize(0, 0);
@@ -109,7 +109,7 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
     std::vector<double> KLD_partial(n_snps_per_task);
     size_t index = 0;
     for (size_t i = start_id; i < end_id; ++i) {
-	KLD_partial[index] = dropped_predictor_kld_lowrank(svd_cov_beta_u, Sigma_star, svd_design_matrix_v, col_means_beta[i], i);
+	KLD_partial[index] = dropped_predictor_kld_lowrank(Lambda, Sigma_star, svd_design_matrix_v, col_means_beta[i], i);
 	++index;
     }
 
