@@ -100,12 +100,17 @@ inline Eigen::MatrixXd sherman_r(const Eigen::MatrixXd &ap, const Eigen::VectorX
 
 inline Eigen::MatrixXd sherman_r_lowrank(const Eigen::MatrixXd &Lambda, const Eigen::SparseMatrix<double> &Sigma_star, const Eigen::MatrixXd &svd_cov_beta_v, const size_t predictor_id) {
     // TODO: tests
-    Eigen::MatrixXd tmp = std::move(Eigen::MatrixXd::Zero(svd_cov_beta_v.rows(), svd_cov_beta_v.rows()));
-    tmp.template selfadjointView<Eigen::Lower>().rankUpdate((svd_cov_beta_v*Sigma_star.triangularView<Eigen::Lower>()*svd_cov_beta_v.adjoint().col(predictor_id)));
-    tmp *= Lambda.triangularView<Eigen::Lower>();
-    tmp.array() = ( Lambda.triangularView<Eigen::Lower>() * tmp ).array() / ( 1 + (tmp).array());
+    Eigen::MatrixXd denominator = std::move(Eigen::MatrixXd::Zero(svd_cov_beta_v.rows(), svd_cov_beta_v.rows()));
+    denominator.template selfadjointView<Eigen::Lower>().rankUpdate((svd_cov_beta_v*Sigma_star.triangularView<Eigen::Lower>()*svd_cov_beta_v.adjoint().col(predictor_id)));
+    denominator *= Lambda.triangularView<Eigen::Lower>();
 
-    return tmp;
+    Eigen::MatrixXd nominator = std::move(Eigen::MatrixXd::Zero(svd_cov_beta_v.rows(), svd_cov_beta_v.rows()));
+    nominator.template selfadjointView<Eigen::Lower>().rankUpdate(Lambda.triangularView<Eigen::Lower>()*(svd_cov_beta_v*Sigma_star.triangularView<Eigen::Lower>()*svd_cov_beta_v.adjoint().col(predictor_id)));
+
+    denominator.array() += 1.0;
+    nominator.array() /= denominator.array();
+
+    return nominator;
 }
 
 template <typename T>
