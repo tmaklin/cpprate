@@ -304,38 +304,18 @@ inline double dropped_predictor_kld(const Eigen::MatrixXd &lambda, const Eigen::
 
 inline double dropped_predictor_kld_lowrank(const Eigen::MatrixXd &Lambda, const Eigen::SparseMatrix<double> &Sigma_star, const Eigen::MatrixXd &svd_cov_beta_v, const double mean_beta, const size_t predictor_id) {
     // TODO: tests
-    double log_m = std::log(std::abs(mean_beta));
-
     const Eigen::MatrixXd &U_Lambda_sub = sherman_r_lowrank(Lambda, Sigma_star, svd_cov_beta_v, predictor_id);
+
     double alpha = 0.0;
-
-    for (size_t k = 0; k < U_Lambda_sub.cols(); k++) {
+    const Eigen::VectorXd &predictor_col = Lambda.col(predictor_id) - U_Lambda_sub.col(predictor_id);
+#pragma omp parallel for schedule(static) reduction(+:alpha)
+    for (size_t k = 0; k < U_Lambda_sub.cols(); ++k) {
 	if (k != predictor_id) {
-	    double tmp_sum = 0.0;
-	    if (k > predictor_id) {
-		tmp_sum += (Lambda(k, predictor_id) - U_Lambda_sub(k, predictor_id)) * (Lambda(k, k) - U_Lambda_sub(k, k));
-	    } else {
-		tmp_sum += (Lambda(predictor_id, k) - U_Lambda_sub(predictor_id, k)) * (Lambda(k, k) - U_Lambda_sub(k, k));
-	    }
-
-	    for (size_t j = (k + 1); j < U_Lambda_sub.rows(); ++j) {
-		if (j != predictor_id && j > predictor_id) {
-		    // U_Lambda_sub *should* be symmetric, TODO check if asymmetry is floating point error?
-		    tmp_sum += (Lambda(j, predictor_id) - U_Lambda_sub(j, predictor_id)) * (Lambda(j, k) - U_Lambda_sub(j, k));
-		    tmp_sum += (Lambda(j, predictor_id) - U_Lambda_sub(j, predictor_id)) * (Lambda(j, k) - U_Lambda_sub(j, k));
-		} else if (j != predictor_id) {
-		    tmp_sum += (Lambda(predictor_id, j) - U_Lambda_sub(predictor_id, j)) * (Lambda(j, k) - U_Lambda_sub(j, k));
-		    tmp_sum += (Lambda(predictor_id, j) - U_Lambda_sub(predictor_id, j)) * (Lambda(j, k) - U_Lambda_sub(j, k));
-		}
-	    }
-	    if (k > predictor_id) {
-		alpha += tmp_sum * (Lambda(k, predictor_id) - U_Lambda_sub(k, predictor_id));
-	    } else {
-		alpha += tmp_sum * (Lambda(predictor_id, k) - U_Lambda_sub(predictor_id, k));
-	    }
+	    alpha += predictor_col.dot(Lambda.col(k) - U_Lambda_sub.col(k)) * predictor_col(k);
 	}
     }
 
+    double log_m = std::log(std::abs(mean_beta));
     return std::exp(std::log(0.5) + log_m + std::log(alpha) + log_m);
 }
 
