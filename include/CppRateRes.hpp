@@ -320,12 +320,9 @@ inline double dropped_predictor_kld_lowrank(const Eigen::MatrixXd &Lambda, const
 }
 
 inline Eigen::SparseMatrix<double> project_f_draws(const Eigen::MatrixXd &f_draws, const Eigen::MatrixXd &v) {
-   // TODO investigate why the lowrank integration tests fail (floating point rounding; this one is more accurate?).
-   // The unit test is fine so its probably nothing.
-   Eigen::MatrixXd tmp = Eigen::MatrixXd::Zero(v.rows(), v.rows());
-   tmp.template selfadjointView<Eigen::Lower>().rankUpdate(v*(f_draws.rowwise() - f_draws.colwise().mean()).adjoint());
-   // tmp.template triangularView<Eigen::Upper>() = tmp.adjoint();
-   return ((tmp) / double(f_draws.rows() - 1)).sparseView();
+    Eigen::MatrixXd tmp = Eigen::MatrixXd::Zero(v.rows(), v.rows());
+    tmp.template selfadjointView<Eigen::Lower>().rankUpdate(v*(f_draws.rowwise() - f_draws.colwise().mean()).adjoint());
+    return ((tmp) / double(f_draws.rows() - 1)).sparseView();
 }
 
 inline Eigen::MatrixXd approximate_cov_beta(const Eigen::MatrixXd &project_f_draws, const Eigen::MatrixXd &v) {

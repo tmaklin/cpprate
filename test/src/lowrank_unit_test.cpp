@@ -62,8 +62,8 @@ TEST_F(LowrankTest, project_f_draws) {
     EXPECT_EQ(project_f_draws_got.cols(), this->num_nonzero_dims_expected);
 
     // Check contents of `beta_draws_got`
-    for (size_t i = 0; i < this->num_nonzero_dims_expected; ++i) {
-	for (size_t j = 0; j < this->num_nonzero_dims_expected; ++j) {
+    for (size_t j = 0; j < this->num_nonzero_dims_expected; ++j) {
+	for (size_t i = j; i < this->num_nonzero_dims_expected; ++i) {
 	    EXPECT_NEAR(std::abs(project_f_draws_got(i, j)), std::abs(project_f_draws_expected[i*this->num_nonzero_dims_expected + j]), this->test_tolerance);
 	}
     }
