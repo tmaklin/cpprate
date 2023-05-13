@@ -118,7 +118,7 @@ inline Eigen::MatrixXd sherman_r_lowrank(const Eigen::MatrixXd &Lambda, const Ei
 #pragma omp parallel for schedule(dynamic, 1)
     for (size_t j = 0; j < nominator.cols(); ++j) {
 	for (size_t i = j; i < nominator.rows(); ++i) {
-	    nominator(i, j) = Lambda(i, j) - (nominator(i, j)/(denominator(i, j) + 1.0));
+	    nominator(i, j) = std::abs(Lambda(i, j) - std::exp(std::log(std::abs(nominator(i, j))) - std::log1p(std::abs(denominator(i, j)))));
 	}
     }
 
@@ -322,7 +322,7 @@ inline double dropped_predictor_kld_lowrank(const Eigen::MatrixXd &Lambda, const
 #pragma omp parallel for schedule(static) reduction(+:alpha)
     for (size_t k = 0; k < U_Lambda_sub.cols(); ++k) {
 	if (k != predictor_id) {
-	    alpha += predictor_col.dot(U_Lambda_sub.col(k)) * predictor_col(k);
+	    alpha += std::exp(std::log(predictor_col.dot(U_Lambda_sub.col(k))) + std::log(predictor_col(k)));
 	}
     }
 
