@@ -325,8 +325,10 @@ inline Eigen::SparseMatrix<double> project_f_draws(const Eigen::MatrixXd &f_draw
     return ((tmp) / double(f_draws.rows() - 1)).sparseView();
 }
 
-inline Eigen::MatrixXd approximate_cov_beta(const Eigen::MatrixXd &project_f_draws, const Eigen::MatrixXd &v) {
-    return v*project_f_draws*v.adjoint();
+inline Eigen::MatrixXd approximate_cov_beta(const Eigen::MatrixXd &f_draws, const Eigen::MatrixXd &u, const Eigen::MatrixXd &v) {
+    Eigen::MatrixXd tmp = Eigen::MatrixXd::Zero(v.rows(), v.rows());
+    tmp.template selfadjointView<Eigen::Lower>().rankUpdate(v*u*(f_draws.rowwise() - f_draws.colwise().mean()).adjoint());
+    return ((tmp) / double(f_draws.rows() - 1));
 }
 
 inline Eigen::VectorXd approximate_beta_means(const Eigen::MatrixXd &f_draws, const Eigen::MatrixXd &u, const Eigen::MatrixXd &v) {

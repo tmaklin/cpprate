@@ -54,7 +54,6 @@ TEST_F(LowrankTest, covariance_matrix) {
 }
 
 TEST_F(LowrankTest, project_f_draws) {
-    const Eigen::MatrixXd &cov_f_draws = covariance_matrix(this->f_draws);
     const Eigen::MatrixXd &project_f_draws_got = project_f_draws(this->f_draws, this->svd_design_mat_u);
 
     // Check dimensions of `project_f_draws_got`
@@ -70,18 +69,15 @@ TEST_F(LowrankTest, project_f_draws) {
 }
 
 TEST_F(LowrankTest, approximate_cov_beta) {
-    const Eigen::MatrixXd &cov_f_draws = covariance_matrix(this->f_draws);
-    const Eigen::SparseMatrix<double> &proj_f_draws = project_f_draws(this->f_draws, this->svd_design_mat_u);
+    const Eigen::MatrixXd &cov_beta_got = approximate_cov_beta(this->f_draws, this->svd_design_mat_u, this->svd_design_mat_v);
 
-    const Eigen::MatrixXd &cov_beta_got = approximate_cov_beta(proj_f_draws, this->svd_design_mat_v);
-
-    // Check dimensions of `project_cov_f_draws_got`
+    // Check dimensions of `cov_beta_got`
     EXPECT_EQ(cov_beta_got.rows(), this->n_design_dim);
     EXPECT_EQ(cov_beta_got.cols(), this->n_design_dim);
 
-    // Check contents of `beta_draws_got`
-    for (size_t i = 0; i < this->n_design_dim; ++i) {
-	for (size_t j = 0; j < this->n_design_dim; ++j) {
+    // Check contents of `cov_beta_got`
+    for (size_t j = 0; j < this->n_design_dim; ++j) {
+	for (size_t i = j; i < this->n_design_dim; ++i) {
 	    EXPECT_NEAR(std::abs(cov_beta_got(i, j)), std::abs(approximate_cov_beta_expected[i*this->n_design_dim + j]), this->test_tolerance);
 	}
     }
