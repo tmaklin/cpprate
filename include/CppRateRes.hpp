@@ -92,6 +92,13 @@ public:
 	this->Delta = rate_delta(RATE);
 	this->ESS = delta_to_ess(Delta);
     }
+
+    RATEd(std::vector<double> _KLD, std::vector<double> _RATE) {
+	this->KLD = _KLD;
+	this->RATE = _RATE;
+	this->Delta = rate_delta(RATE);
+	this->ESS = delta_to_ess(Delta);
+    }
 };
 
 inline Eigen::MatrixXd sherman_r(const Eigen::MatrixXd &ap, const Eigen::VectorXd &u) {
