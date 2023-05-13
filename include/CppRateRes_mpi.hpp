@@ -81,22 +81,6 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
     MPI_Bcast(&svd_design_matrix_v_rows, 1, MPI_UNSIGNED_LONG_LONG, 0, MPI_COMM_WORLD);
     MPI_Bcast(&svd_design_matrix_v_cols, 1, MPI_UNSIGNED_LONG_LONG, 0, MPI_COMM_WORLD);
 
-    if (rank != 0) {
-	col_means_beta.resize(n_snps);
-	Sigma_star.resize(Sigma_star_rows, Sigma_star_cols);
-	Lambda.resize(Lambda_rows, Lambda_cols);
-	svd_design_matrix_v.resize(svd_design_matrix_v_rows, svd_design_matrix_v_cols);
-    }
-
-    // Broadcast variables needed by all processes
-    Eigen::MatrixXd tmp_mat = Sigma_star;
-    MPI_Bcast(col_means_beta.data(), col_means_beta.size(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    MPI_Bcast(tmp_mat.data(), tmp_mat.rows()*tmp_mat.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    MPI_Bcast(Lambda.data(), Lambda.rows()*Lambda.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    MPI_Bcast(svd_design_matrix_v.data(), svd_design_matrix_v.rows()*svd_design_matrix_v.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    Sigma_star = tmp_mat.sparseView();
-    tmp_mat.resize(0, 0);
-
     // Initialize ranges for MPI
     size_t n_snps_per_task = std::floor(n_snps/(double)n_tasks);
     size_t start_id = rank * n_snps_per_task;
@@ -106,25 +90,55 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
 	end_id = std::min(n_snps, (rank + 1) * n_snps_per_task);
     }
 
-    std::vector<double> KLD_partial(n_snps_per_task);
-    size_t index = 0;
-    for (size_t i = start_id; i < end_id; ++i) {
-	KLD_partial[index] = dropped_predictor_kld_lowrank(Lambda, Sigma_star, svd_design_matrix_v, col_means_beta[i], i);
-	++index;
-    }
-
-    std::vector<double> KLD;
-    if (rank == 0) {
-	KLD.resize(n_snps);
+    if (rank != 0) {
+	Lambda.resize(Lambda_rows, Lambda_cols);
+	svd_design_matrix_v.resize(svd_design_matrix_v_rows, svd_design_matrix_v_cols);
     }
 
     handler.initialize_2(n_snps);
     const int* displacements_2 = handler.get_displacements();
     const int* bufcounts_2 = handler.get_bufcounts();
+    Eigen::VectorXd col_means_beta_partial(n_snps_per_task);
+    MPI_Scatterv(col_means_beta.data(), bufcounts_2, displacements_2, MPI_DOUBLE, col_means_beta_partial.data(), n_snps_per_task, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+    Eigen::MatrixXd tmp_mat(Sigma_star_rows, Sigma_star_cols);
+    if (rank == 0) {
+	tmp_mat = std::move(Sigma_star);
+	col_means_beta.resize(0);
+    }
+
+    // Broadcast variables needed by all processes
+    MPI_Bcast(tmp_mat.data(), tmp_mat.rows()*tmp_mat.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(Lambda.data(), Lambda.rows()*Lambda.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(svd_design_matrix_v.data(), svd_design_matrix_v.rows()*svd_design_matrix_v.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    Sigma_star = std::move(tmp_mat.sparseView());
+    tmp_mat.resize(0, 0);
+
+    std::vector<double> KLD_partial(n_snps_per_task);
+    size_t index = 0;
+    for (size_t i = start_id; i < end_id; ++i) {
+	KLD_partial[index] = dropped_predictor_kld_lowrank(Lambda, Sigma_star, svd_design_matrix_v, col_means_beta_partial[index], i);
+	++index;
+    }
+
+    double KLD_sum_local = std::accumulate(KLD_partial.begin(), KLD_partial.end(), 0.0);
+    double KLD_sum_global = 0.0;
+    MPI_Allreduce(&KLD_sum_local, &KLD_sum_global, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+
+    std::vector<double> RATE_partial = rate_from_kld(KLD_partial, KLD_sum_global);
+
+    std::vector<double> KLD;
+    std::vector<double> RATE;
+    if (rank == 0) {
+	KLD.resize(n_snps);
+	RATE.resize(n_snps);
+    }
+
     MPI_Gatherv(&KLD_partial.front(), n_snps_per_task, MPI_DOUBLE, &KLD.front(), bufcounts_2, displacements_2, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Gatherv(&RATE_partial.front(), n_snps_per_task, MPI_DOUBLE, &RATE.front(), bufcounts_2, displacements_2, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
     if (rank == 0) {
-	return RATEd(KLD);
+	return RATEd(KLD, RATE);
     } else {
 	return RATEd();
     }
