@@ -114,18 +114,20 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
     Sigma_star = std::move(tmp_mat.sparseView());
     tmp_mat.resize(0, 0);
 
-    std::vector<double> KLD_partial(n_snps_per_task);
+    std::vector<double> log_KLD_partial(n_snps_per_task);
     size_t index = 0;
     for (size_t i = start_id; i < end_id; ++i) {
-	KLD_partial[index] = dropped_predictor_kld_lowrank(Lambda, Sigma_star, svd_design_matrix_v, col_means_beta_partial[index], i);
+	log_KLD_partial[index] = dropped_predictor_kld_lowrank(Lambda, Sigma_star, svd_design_matrix_v, col_means_beta_partial[index], i);
 	++index;
     }
 
+    std::vector<double> KLD_partial;
+    std::transform(log_KLD_partial.begin(), log_KLD_partial.end(), std::back_inserter(KLD_partial), static_cast<double(*)(double)>(std::exp));
     double KLD_sum_local = std::accumulate(KLD_partial.begin(), KLD_partial.end(), 0.0);
     double KLD_sum_global = 0.0;
     MPI_Allreduce(&KLD_sum_local, &KLD_sum_global, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
-    std::vector<double> RATE_partial = rate_from_kld(KLD_partial, KLD_sum_global);
+    std::vector<double> RATE_partial = rate_from_kld(log_KLD_partial, KLD_sum_global);
 
     std::vector<double> KLD;
     std::vector<double> RATE;

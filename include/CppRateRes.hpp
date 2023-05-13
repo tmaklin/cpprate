@@ -45,12 +45,12 @@
 #include <iostream>
 #include <numeric>
 
-inline std::vector<double> rate_from_kld(const std::vector<double> &kld, const double kld_sum) {
-    std::vector<double> RATE(kld.size());
+inline std::vector<double> rate_from_kld(const std::vector<double> &log_kld, const double kld_sum) {
+    std::vector<double> RATE(log_kld.size());
     double log_kld_sum = std::log(kld_sum);
 #pragma omp parallel for schedule(static)
-    for (size_t i = 0; i < kld.size(); ++i) {
-	RATE[i] = std::exp(std::log(kld[i]) - log_kld_sum);
+    for (size_t i = 0; i < log_kld.size(); ++i) {
+	RATE[i] = std::exp(log_kld[i] - log_kld_sum);
     }
     return RATE;
 }
@@ -86,9 +86,9 @@ public:
 	this->KLD = _KLD;
     }
 
-    RATEd(std::vector<double> _KLD) {
-	this->KLD = _KLD;
-	this->RATE = rate_from_kld(KLD, std::accumulate(this->KLD.begin(), this->KLD.end(), 0.0));
+    RATEd(std::vector<double> _log_KLD) {
+	std::transform(_log_KLD.begin(), _log_KLD.end(), std::back_inserter(this->KLD), static_cast<double(*)(double)>(std::exp));
+	this->RATE = rate_from_kld(_log_KLD, std::accumulate(this->KLD.begin(), this->KLD.end(), 0.0));
 	this->Delta = rate_delta(RATE);
 	this->ESS = delta_to_ess(Delta);
     }
@@ -312,7 +312,7 @@ inline double dropped_predictor_kld(const Eigen::MatrixXd &lambda, const Eigen::
 	}
     }
 
-    return std::exp(std::log(0.5) + log_m + std::log(alpha) + log_m);
+    return std::log(0.5) + log_m + std::log(alpha) + log_m;
 }
 
 inline double dropped_predictor_kld_lowrank(const Eigen::MatrixXd &Lambda, const Eigen::SparseMatrix<double> &Sigma_star, const Eigen::MatrixXd &svd_cov_beta_v, const double mean_beta, const size_t predictor_id) {
@@ -329,7 +329,7 @@ inline double dropped_predictor_kld_lowrank(const Eigen::MatrixXd &Lambda, const
     }
 
     double log_m = std::log(std::abs(mean_beta));
-    return std::exp(std::log(0.5) + log_m + std::log(alpha) + log_m);
+    return std::log(0.5) + log_m + std::log(alpha) + log_m;
 }
 
 inline Eigen::SparseMatrix<double> project_f_draws(const Eigen::MatrixXd &f_draws, const Eigen::MatrixXd &v) {
@@ -392,14 +392,14 @@ inline RATEd RATE_lowrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMat
     const Eigen::SparseMatrix<double> &Sigma_star = project_f_draws(f_draws, u);
     Lambda.template selfadjointView<Eigen::Lower>().rankUpdate(decompose_covariance_approximation(Sigma_star, svd_design_matrix_v, svd_rank));
 
-    std::vector<double> KLD(n_snps);
+    std::vector<double> log_KLD(n_snps);
 
 #pragma omp parallel for schedule(static)
     for (size_t i = 0; i < n_snps; ++i) {
-	KLD[i] = dropped_predictor_kld_lowrank(Lambda, Sigma_star, svd_design_matrix_v, col_means_beta[i], i);
+	log_KLD[i] = dropped_predictor_kld_lowrank(Lambda, Sigma_star, svd_design_matrix_v, col_means_beta[i], i);
     }
 
-    return RATEd(KLD);
+    return RATEd(log_KLD);
 }
 
 inline RATEd RATE_fullrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMatrix<double> &design_matrix, const size_t n_snps) {
@@ -411,14 +411,14 @@ inline RATEd RATE_fullrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMa
     const Eigen::VectorXd &col_means_beta = col_means(beta_draws);
     const Eigen::MatrixXd &Lambda = create_lambda(decompose_covariance_matrix(cov_beta));
 
-    std::vector<double> KLD(n_snps);
+    std::vector<double> log_KLD(n_snps);
 
 #pragma omp parallel for schedule(static)
     for (size_t i = 0; i < n_snps; ++i) {
-	KLD[i] = dropped_predictor_kld(Lambda, cov_beta.col(i), col_means_beta[i], i);
+	log_KLD[i] = dropped_predictor_kld(Lambda, cov_beta.col(i), col_means_beta[i], i);
     }
 
-    return RATEd(KLD);
+    return RATEd(log_KLD);
 }
 
 #endif
