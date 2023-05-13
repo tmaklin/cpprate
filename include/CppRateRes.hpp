@@ -47,9 +47,10 @@
 
 inline std::vector<double> rate_from_kld(const std::vector<double> &kld, const double kld_sum) {
     std::vector<double> RATE(kld.size());
+    double log_kld_sum = std::log(kld_sum);
 #pragma omp parallel for schedule(static)
     for (size_t i = 0; i < kld.size(); ++i) {
-	RATE[i] = kld[i]/kld_sum;
+	RATE[i] = std::exp(std::log(kld[i]) - log_kld_sum);
     }
     return RATE;
 }
