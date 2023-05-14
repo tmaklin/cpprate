@@ -35,6 +35,9 @@
 #ifndef CPPRATE_CPPRATERES_HPP
 #define CPPRATE_CPPRATERES_HPP
 
+// TODO check if these were found
+#define EIGEN_USE_BLAS
+
 #include <Eigen/SparseCore>
 
 #include "RedSVD.h"

@@ -23,6 +23,9 @@ if (OPENMP_FOUND)
   set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -D_GLIBCXX_PARALLEL")
 endif()
 
+## BLAS
+find_package(BLAS)
+
 ### MPI
 if (CMAKE_ENABLE_MPI_SUPPORT)
   find_package(MPI REQUIRED)
@@ -106,6 +109,9 @@ if(CMAKE_BUILD_TESTS)
   if (CMAKE_ENABLE_MPI_SUPPORT)
     target_link_libraries(runTests MPI::MPI_CXX)
   endif()
+  if (BLAS_FOUND)
+    target_link_libraries(runTests ${BLAS_LIBRARIES})
+  endif()
 endif()
 
 if(CMAKE_BUILD_EXECUTABLE)
@@ -122,6 +128,12 @@ if(CMAKE_BUILD_EXECUTABLE)
   endif()
   if (CMAKE_ENABLE_MPI_SUPPORT)
     target_link_libraries(cpprate-mpi MPI::MPI_CXX)
+    if (BLAS_FOUND)
+      target_link_libraries(cpprate-mpi ${BLAS_LIBRARIES})
+    endif()
+  endif()
+  if (BLAS_FOUND)
+    target_link_libraries(cpprate ${BLAS_LIBRARIES})
   endif()
 endif()
 

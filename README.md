@@ -22,5 +22,8 @@ Run tests with
 bin/runTests
 ```
 
+# BLAS
+It's *highly* recommended to have BLAS installed on the system. Not having BLAS will seriously impact multithreading performance.
+
 # License
 cpprate is licensed under the [BSD-3-Clause license](https://opensource.org/licenses/BSD-3-Clause). A copy of the license is supplied with the project, or can alternatively be obtained from [https://opensource.org/licenses/BSD-3-Clause](https://opensource.org/licenses/BSD-3-Clause).
