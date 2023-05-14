@@ -26,6 +26,9 @@
 #ifndef REDSVD_MODULE_H
 #define REDSVD_MODULE_H
 
+// TODO check if these were found
+#define EIGEN_USE_BLAS
+
 #include <Eigen/Sparse>
 #include <Eigen/Dense>
 #include <Eigen/Eigenvalues>
