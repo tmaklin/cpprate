@@ -48,6 +48,102 @@
 #include <iostream>
 #include <numeric>
 
+template<typename T>
+struct LowerTriangular {
+
+    LowerTriangular() = default;
+    ~LowerTriangular() = default;
+
+    LowerTriangular(size_t _rows, size_t _cols, T initial) {
+	this->n_rows = _rows;
+	this->n_cols = _cols;
+	this->flat.resize(this->size(), initial);
+    }
+
+    LowerTriangular(const Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> &lower_tri) {
+	this->n_rows = lower_tri.rows();
+	this->n_cols = lower_tri.cols();
+	this->flat.resize(this->size());
+	size_t pos = 0;
+	for (size_t j = 0; j < this->cols(); ++j) {
+	    for (size_t i = j; i < this->rows(); ++i) {
+		this->flat[pos] = lower_tri(i, j);
+		++pos;
+	    }
+	}
+    }
+
+    size_t n_rows;
+    size_t n_cols;
+    std::vector<T> flat;
+
+    const size_t size() const { return this->n_rows * (this->n_rows + 1)/2; };
+    const size_t rows() const { return this->n_rows; };
+    const size_t cols() const { return this->n_cols; };
+
+//     LowerTriangular<T> operator*(const Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> &rhs) {
+// 	LowerTriangular<T> res(this->rows(), rhs.cols(), (T)0);
+// #pragma omp parallel for schedule(static)
+// 	for (size_t k = 0; k < rhs.cols(); ++k) {
+// 	    for (size_t j = 0; j < this->cols(); ++j) {
+// 		for (size_t i = j; i < this->rows(); ++i) {
+// 		    res(i, k) += this->operator()(i, j) * rhs(j, k);
+// 		}
+// 	    }
+// 	}
+// 	return res;
+//     }
+
+//     LowerTriangular<T> operator*(const LowerTriangular<T> &rhs) {
+// 	LowerTriangular<T> res(this->rows(), rhs.cols(), (T)0);
+// #pragma omp parallel for schedule(static)
+// 	for (size_t k = 0; k < rhs.cols(); ++k) {
+// 	    for (size_t j = k; j < this->cols(); ++j) {
+// 		for (size_t i = j; i < this->rows(); ++i) {
+// 		    res(i, k) += this->operator()(i, j) * rhs(j, k);
+// 		}
+// 	    }
+// 	}
+// 	return res;
+//     }
+
+    const size_t get_pos(const size_t row, const size_t col) const {
+	if (row <= col) {
+	    return this->flat[col * this->rows() + row];
+	} else {
+	    return this->flat[row * this->rows() + col];
+	}
+    }
+
+    const T& operator()(const size_t row, const size_t col) const { return this->flat[get_pos(row, col)]; };
+    T& operator()(const size_t row, const size_t col) { return this->flat[get_pos(row, col)]; };
+
+    Eigen::MatrixXd denseView() const {
+	Eigen::MatrixXd dense = Eigen::MatrixXd::Zero(this->rows(), this->cols());
+	for (size_t j = 0; j < this->cols(); ++j) {
+	    for (size_t i = j; i < this->rows(); ++i) {
+		dense(i, j) = this->operator()(i, j);
+	    }
+	}
+	dense.triangularView<Eigen::Upper>() = dense.transpose();
+	return dense;
+    }
+};
+
+// template <typename T>
+// Eigen::MatrixXd multiply(const Eigen::MatrixXd &lhs, const LowerTriangular<T> &rhs) {
+//     Eigen::MatrixXd res = Eigen::MatrixXd::Zero(lhs.rows(), rhs.cols());
+// #pragma omp parallel for schedule(static)
+//     for (size_t k = 0; k < rhs.cols(); ++k) {
+// 	for (size_t j = 0; j < lhs.cols(); ++j) {
+// 	    for (size_t i = 0; i < lhs.rows(); ++i) {
+// 		res(i, k) += lhs(i, j) * rhs((j > k ? k : j), (j > k ? j : k));
+// 	    }
+// 	}
+//     }
+//     return res;
+// }
+
 inline std::vector<double> rate_from_kld(const std::vector<double> &log_kld, const double kld_sum) {
     std::vector<double> RATE(log_kld.size());
     double log_kld_sum = std::log(kld_sum);
@@ -109,13 +205,22 @@ inline Eigen::MatrixXd sherman_r(const Eigen::MatrixXd &ap, const Eigen::VectorX
     return (ap - ( (ap * tmp).array() / (1 + (tmp).array())).matrix());
 }
 
-inline Eigen::MatrixXd sherman_r_lowrank(const Eigen::MatrixXd &Lambda, const Eigen::MatrixXd &Lambda_chol, const Eigen::SparseMatrix<double> &Sigma_star, const Eigen::MatrixXd &svd_cov_beta_v, const size_t predictor_id) {
-    // TODO: tests
+inline LowerTriangular<double> create_denominator(const Eigen::MatrixXd &Lambda_chol, const Eigen::SparseMatrix<double> &Sigma_star, const Eigen::MatrixXd &svd_cov_beta_v, const size_t predictor_id) {
     Eigen::MatrixXd denominator = std::move(Eigen::MatrixXd::Zero(svd_cov_beta_v.rows(), svd_cov_beta_v.rows()));
     denominator.template selfadjointView<Eigen::Lower>().rankUpdate((svd_cov_beta_v*Sigma_star.triangularView<Eigen::Lower>()*svd_cov_beta_v.adjoint().col(predictor_id))*Lambda_chol);
+    return LowerTriangular<double>(denominator);
+}
 
+inline LowerTriangular<double> create_nominator(const Eigen::MatrixXd &Lambda, const Eigen::SparseMatrix<double> &Sigma_star, const Eigen::MatrixXd &svd_cov_beta_v, const size_t predictor_id) {
     Eigen::MatrixXd nominator = std::move(Eigen::MatrixXd::Zero(svd_cov_beta_v.rows(), svd_cov_beta_v.rows()));
     nominator.template selfadjointView<Eigen::Lower>().rankUpdate(Lambda.triangularView<Eigen::Lower>()*(svd_cov_beta_v*Sigma_star.triangularView<Eigen::Lower>()*svd_cov_beta_v.adjoint().col(predictor_id)));
+    return LowerTriangular<double>(nominator);
+}
+
+inline Eigen::MatrixXd sherman_r_lowrank(const Eigen::MatrixXd &Lambda, const Eigen::MatrixXd &Lambda_chol, const Eigen::SparseMatrix<double> &Sigma_star, const Eigen::MatrixXd &svd_cov_beta_v, const size_t predictor_id) {
+    // TODO: tests
+    const LowerTriangular<double> &denominator = create_denominator(Lambda_chol, Sigma_star, svd_cov_beta_v, predictor_id);
+    LowerTriangular<double> nominator = create_denominator(Lambda, Sigma_star, svd_cov_beta_v, predictor_id);
 
 #pragma omp parallel for schedule(dynamic, 12)
     for (size_t j = 0; j < nominator.cols(); ++j) {
@@ -124,8 +229,7 @@ inline Eigen::MatrixXd sherman_r_lowrank(const Eigen::MatrixXd &Lambda, const Ei
 	}
     }
 
-    nominator.triangularView<Eigen::Upper>() = nominator.transpose();
-    return nominator;
+    return nominator.denseView();
 }
 
 template <typename T>
