@@ -117,7 +117,7 @@ inline Eigen::MatrixXd sherman_r_lowrank(const Eigen::MatrixXd &Lambda, const Ei
     Eigen::MatrixXd nominator = std::move(Eigen::MatrixXd::Zero(svd_cov_beta_v.rows(), svd_cov_beta_v.rows()));
     nominator.template selfadjointView<Eigen::Lower>().rankUpdate(Lambda.triangularView<Eigen::Lower>()*(svd_cov_beta_v*Sigma_star.triangularView<Eigen::Lower>()*svd_cov_beta_v.adjoint().col(predictor_id)));
 
-#pragma omp parallel for schedule(dynamic, 1)
+#pragma omp parallel for schedule(dynamic, 12)
     for (size_t j = 0; j < nominator.cols(); ++j) {
 	for (size_t i = j; i < nominator.rows(); ++i) {
 	    nominator(i, j) = Lambda(i, j) - (nominator(i, j)/(denominator(i, j) + 1.0));
