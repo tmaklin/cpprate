@@ -35,10 +35,12 @@
 #ifndef CPPRATE_CPPRATERES_MPI_HPP
 #define CPPRATE_CPPRATERES_MPI_HPP
 
+#include "CppRateRes.hpp"
+
 #include <Eigen/SparseCore>
 #include <Eigen/Dense>
 
-#include "CppRateRes.hpp"
+#include <omp.h>
 
 #include "cpprate_mpi_config.hpp"
 
@@ -137,10 +139,8 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
     tmp_mat.resize(0, 0);
 
     std::vector<double> log_KLD_partial(n_snps_per_task);
-    size_t index = 0;
-    for (size_t i = start_id; i < end_id; ++i) {
-	log_KLD_partial[index] = dropped_predictor_kld_lowrank(Lambda, Lambda_chol, Sigma_star, svd_design_matrix_v, col_means_beta[index], i);
-	++index;
+    for (size_t i = 0; i < n_snps_per_task; ++i) {
+	log_KLD_partial[i] = dropped_predictor_kld_lowrank(Lambda, Lambda_chol, Sigma_star, svd_design_matrix_v, col_means_beta[i], start_id + i);
     }
 
     std::vector<double> KLD_partial;
