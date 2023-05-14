@@ -41,21 +41,21 @@
 #include "CppRateRes.hpp"
 
 #include "cpprate_mpi_config.hpp"
-#include "MpiHandler.hpp"
 
 inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<double> &design_matrix, const size_t n_snps, const size_t svd_rank, const double prop_var) {
     // ## WARNING: Do not compile with -ffast-math
 
     // Setup MPI
-    MpiHandler handler;
-    const int rank = handler.get_rank();
-    const int n_tasks = handler.get_n_tasks();
+    int rank;
+    int n_tasks;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &n_tasks);
 
-    Eigen::VectorXd col_means_beta;
-    Eigen::SparseMatrix<double> Sigma_star;
-    Eigen::MatrixXd Lambda;
-    Eigen::MatrixXd Lambda_chol;
-    Eigen::MatrixXd svd_design_matrix_v;
+    Eigen::VectorXd col_means_beta(0);
+    Eigen::SparseMatrix<double> Sigma_star(0, 0);
+    Eigen::MatrixXd Lambda(0, 0);
+    Eigen::MatrixXd Lambda_chol(0, 0);
+    Eigen::MatrixXd svd_design_matrix_v(0, 0);
     if (rank == 0) {
 	Eigen::MatrixXd u;
 	decompose_design_matrix(design_matrix, svd_rank, prop_var, &u, &svd_design_matrix_v);
@@ -100,18 +100,32 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
 	Lambda.resize(Lambda_rows, Lambda_cols);
 	Lambda_chol.resize(Lambda_chol_rows, Lambda_chol_cols);
 	svd_design_matrix_v.resize(svd_design_matrix_v_rows, svd_design_matrix_v_cols);
+	col_means_beta.resize(n_snps_per_task);
     }
 
-    handler.initialize_2(n_snps);
-    const int* displacements_2 = handler.get_displacements();
-    const int* bufcounts_2 = handler.get_bufcounts();
-    Eigen::VectorXd col_means_beta_partial(n_snps_per_task);
-    MPI_Scatterv(col_means_beta.data(), bufcounts_2, displacements_2, MPI_DOUBLE, col_means_beta_partial.data(), n_snps_per_task, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    // Eigen::VectorXd col_means_beta_partial(n_snps_per_task);
 
+    {
+	// Initializes the displacements and bufcounts.
+	int displacements[1024];
+	int bufcounts[1024] = { 0 };
+
+	uint32_t sent_so_far = 0;
+	uint32_t n_obs_per_task = std::floor(n_snps/n_tasks);
+	for (uint16_t i = 0; i < n_tasks - 1; ++i) {
+	    displacements[i] = sent_so_far;
+	    bufcounts[i] = n_obs_per_task;
+	    sent_so_far += bufcounts[i];
+	}
+	displacements[n_tasks - 1] = sent_so_far;
+	bufcounts[n_tasks - 1] = n_snps - sent_so_far;
+	bufcounts[0] = 0;
+
+	MPI_Scatterv(col_means_beta.data(), bufcounts, displacements, MPI_DOUBLE, col_means_beta.data(), n_snps_per_task, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    }
     Eigen::MatrixXd tmp_mat(Sigma_star_rows, Sigma_star_cols);
     if (rank == 0) {
 	tmp_mat = std::move(Sigma_star);
-	col_means_beta.resize(0);
     }
 
     // Broadcast variables needed by all processes
@@ -125,7 +139,7 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
     std::vector<double> log_KLD_partial(n_snps_per_task);
     size_t index = 0;
     for (size_t i = start_id; i < end_id; ++i) {
-	log_KLD_partial[index] = dropped_predictor_kld_lowrank(Lambda, Lambda_chol, Sigma_star, svd_design_matrix_v, col_means_beta_partial[index], i);
+	log_KLD_partial[index] = dropped_predictor_kld_lowrank(Lambda, Lambda_chol, Sigma_star, svd_design_matrix_v, col_means_beta[index], i);
 	++index;
     }
 
@@ -137,15 +151,31 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
 
     std::vector<double> RATE_partial = rate_from_kld(log_KLD_partial, KLD_sum_global);
 
-    std::vector<double> KLD;
-    std::vector<double> RATE;
+    std::vector<double> KLD(0);
+    std::vector<double> RATE(0);
     if (rank == 0) {
 	KLD.resize(n_snps);
 	RATE.resize(n_snps);
     }
 
-    MPI_Gatherv(&KLD_partial.front(), n_snps_per_task, MPI_DOUBLE, &KLD.front(), bufcounts_2, displacements_2, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    MPI_Gatherv(&RATE_partial.front(), n_snps_per_task, MPI_DOUBLE, &RATE.front(), bufcounts_2, displacements_2, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    {
+	// Initializes the displacements and bufcounts.
+	int displacements[1024];
+	int bufcounts[1024] = { 0 };
+
+	uint32_t sent_so_far = 0;
+	uint32_t n_obs_per_task = std::floor(n_snps/n_tasks);
+	for (uint16_t i = 0; i < n_tasks - 1; ++i) {
+	    displacements[i] = sent_so_far;
+	    bufcounts[i] = n_obs_per_task;
+	    sent_so_far += bufcounts[i];
+	}
+	displacements[n_tasks - 1] = sent_so_far;
+	bufcounts[n_tasks - 1] = n_snps - sent_so_far;
+
+	MPI_Gatherv(&KLD_partial.front(), n_snps_per_task, MPI_DOUBLE, &KLD.front(), bufcounts, displacements, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Gatherv(&RATE_partial.front(), n_snps_per_task, MPI_DOUBLE, &RATE.front(), bufcounts, displacements, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    }
 
     if (rank == 0) {
 	return RATEd(KLD, RATE);
