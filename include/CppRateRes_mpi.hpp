@@ -136,17 +136,34 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
 	MPI_Scatterv(col_means_beta.data(), bufcounts, displacements, MPI_DOUBLE, col_means_beta.data(), n_snps_per_task, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     }
 
+    {
+	// Initializes the displacements and bufcounts.
+	int displacements[1024];
+	int bufcounts[1024] = { 0 };
+
+	uint32_t sent_so_far = 0;
+	for (uint16_t i = 0; i < n_tasks - 1; ++i) {
+	    displacements[i] = sent_so_far;
+	    bufcounts[i] = n_snps_per_task * svd_design_matrix_v_rows;
+	    sent_so_far += bufcounts[i];
+	}
+	displacements[n_tasks - 1] = sent_so_far;
+	bufcounts[n_tasks - 1] = (n_snps * svd_design_matrix_v_rows) - sent_so_far;
+	bufcounts[0] = 0;
+
+	MPI_Scatterv(svd_design_matrix_v.data(), bufcounts, displacements, MPI_DOUBLE, svd_design_matrix_v.data(), n_snps_per_task * svd_design_matrix_v_rows, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    }
+
     // Broadcast variables needed by all processes
     MPI_Bcast(v_Sigma_star.data(), v_Sigma_star.rows()*v_Sigma_star.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Bcast(Lambda_f.data(), Lambda_f.rows()*Lambda_f.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Bcast(flat_Lambda.data(), flat_Lambda_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Bcast(Lambda_chol.data(), Lambda_chol.rows()*Lambda_chol.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    MPI_Bcast(svd_design_matrix_v.data(), svd_design_matrix_v.rows()*svd_design_matrix_v.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
     std::vector<double> log_KLD_partial(n_snps_per_task);
     for (size_t i = 0; i < n_snps_per_task; ++i) {
 	// TODO distribute only the necessary rows of svd_design_matrix_v
-	log_KLD_partial[i] = dropped_predictor_kld_lowrank(flat_Lambda, Lambda_f, Lambda_chol, v_Sigma_star, svd_design_matrix_v.col(start_id + i), col_means_beta[i], start_id + i);
+	log_KLD_partial[i] = dropped_predictor_kld_lowrank(flat_Lambda, Lambda_f, Lambda_chol, v_Sigma_star, svd_design_matrix_v.col(i), col_means_beta[i], start_id + i);
     }
 
     std::vector<double> KLD_partial;
