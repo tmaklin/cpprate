@@ -443,6 +443,8 @@ inline RATEd RATE_lowrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMat
 	flat_Lambda = flatten_lambda(Lambda);
     }
 
+    u.resize(0, 0);
+
     svd_design_matrix_v.transposeInPlace();
 
     std::vector<double> log_KLD(n_snps);
