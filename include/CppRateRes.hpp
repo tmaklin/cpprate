@@ -123,6 +123,7 @@ inline Eigen::VectorXd create_nominator(const Eigen::MatrixXd &f_Lambda, const E
     Eigen::VectorXd nominator;
     nominator.resize(dim * (dim + 1)/2, 1);
 
+#pragma omp parallel for schedule(static)
     for (size_t j = 0; j < dim; ++j) {
 	for (size_t i = j; i < dim; ++i) {
 	    nominator(j * dim + i - j * (j - 1)/2 - j, 1) = tmp(i) * tmp(j);
@@ -143,6 +144,8 @@ inline Eigen::MatrixXd sherman_r_lowrank(const Eigen::VectorXd &flat_Lambda, con
 
     size_t dim = Lambda_chol.rows();
     Eigen::MatrixXd res = Eigen::MatrixXd::Zero(dim, dim);
+
+#pragma omp parallel for schedule(static)
     for (size_t j = 0; j < dim; ++j) {
 	for (size_t i = j; i < dim; ++i) {
 	    res(i, j) = nominator(j * dim + i - j * (j - 1)/2 - j, 1);
