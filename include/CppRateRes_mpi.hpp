@@ -60,16 +60,21 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
     Eigen::MatrixXd svd_design_matrix_v(0, 0);
     Eigen::VectorXd flat_Lambda(0);
     if (rank == 0) {
-	Eigen::MatrixXd Lambda = Eigen::MatrixXd::Zero(n_snps, n_snps);
 	Eigen::MatrixXd u;
 	decompose_design_matrix(design_matrix, svd_rank, prop_var, &u, &svd_design_matrix_v);
 	col_means_beta = approximate_beta_means(f_draws, u, svd_design_matrix_v);
-	const Eigen::SparseMatrix<double> &Sigma_star = project_f_draws(f_draws, u);
+	Eigen::MatrixXd Sigma_star = project_f_draws(f_draws, u);
+	u.resize(0, 0);
+
 	v_Sigma_star = svd_design_matrix_v * Sigma_star.triangularView<Eigen::Lower>();
 	Lambda_chol = decompose_covariance_approximation(Sigma_star, svd_design_matrix_v, svd_rank);
+	Sigma_star.resize(0, 0);
+
+	Eigen::MatrixXd Lambda = Eigen::MatrixXd::Zero(n_snps, n_snps);
 	Lambda.template selfadjointView<Eigen::Lower>().rankUpdate(Lambda_chol);
 	Lambda_f = Lambda.triangularView<Eigen::Lower>() * v_Sigma_star;
 	flat_Lambda = flatten_lambda(Lambda);
+
 	svd_design_matrix_v.transposeInPlace();
     }
     f_draws.resize(0, 0);
@@ -162,7 +167,6 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
 
     std::vector<double> log_KLD_partial(n_snps_per_task);
     for (size_t i = 0; i < n_snps_per_task; ++i) {
-	// TODO distribute only the necessary rows of svd_design_matrix_v
 	log_KLD_partial[i] = dropped_predictor_kld_lowrank(flat_Lambda, Lambda_f, Lambda_chol, v_Sigma_star, svd_design_matrix_v.col(i), col_means_beta[i], start_id + i);
     }
 

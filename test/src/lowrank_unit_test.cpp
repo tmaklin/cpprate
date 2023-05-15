@@ -99,7 +99,7 @@ TEST_F(LowrankTest, approximate_beta_means) {
 
 TEST_F(LowrankTest, decompose_covariance_approximation) {
     const Eigen::MatrixXd &cov_f_draws = covariance_matrix(this->f_draws);
-    const Eigen::SparseMatrix<double> &proj_f_draws = project_f_draws(this->f_draws, this->svd_design_mat_u);
+    const Eigen::MatrixXd &proj_f_draws = project_f_draws(this->f_draws, this->svd_design_mat_u);
 
     const Eigen::MatrixXd svd_cov_u_got = decompose_covariance_approximation(proj_f_draws, this->svd_design_mat_v, this->rank_r);
 
@@ -117,7 +117,7 @@ TEST_F(LowrankTest, decompose_covariance_approximation) {
 
 TEST_F(LowrankTest, create_lambda) {
     const Eigen::MatrixXd &cov_f_draws = covariance_matrix(this->f_draws);
-    const Eigen::SparseMatrix<double> proj_f_draws = project_f_draws(this->f_draws, this->svd_design_mat_u);
+    const Eigen::MatrixXd proj_f_draws = project_f_draws(this->f_draws, this->svd_design_mat_u);
     const Eigen::MatrixXd svd_cov_u = decompose_covariance_approximation(proj_f_draws, this->svd_design_mat_v, this->rank_r);
 
     const Eigen::MatrixXd lambda_got = create_lambda(svd_cov_u.adjoint());

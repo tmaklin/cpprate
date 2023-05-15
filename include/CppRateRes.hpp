@@ -133,7 +133,7 @@ inline Eigen::VectorXd create_nominator(const Eigen::MatrixXd &f_Lambda, const E
     return nominator;
 }
 
-inline Eigen::MatrixXd sherman_r_lowrank(const Eigen::VectorXd &flat_Lambda, const Eigen::MatrixXd &f_Lambda, const Eigen::MatrixXd &Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::VectorXd &svd_v_col) {
+inline Eigen::VectorXd sherman_r_lowrank(const Eigen::VectorXd &flat_Lambda, const Eigen::MatrixXd &f_Lambda, const Eigen::MatrixXd &Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::VectorXd &svd_v_col) {
     // TODO: tests
     const double denominator = create_denominator(Lambda_chol, v_Sigma_star, svd_v_col);
     Eigen::VectorXd nominator = create_nominator(f_Lambda, svd_v_col);
@@ -142,18 +142,7 @@ inline Eigen::MatrixXd sherman_r_lowrank(const Eigen::VectorXd &flat_Lambda, con
     nominator.array() *= -1;
     nominator.array() += flat_Lambda.array();
 
-    size_t dim = Lambda_chol.rows();
-    Eigen::MatrixXd res = Eigen::MatrixXd::Zero(dim, dim);
-
-#pragma omp parallel for schedule(static)
-    for (size_t j = 0; j < dim; ++j) {
-	for (size_t i = j; i < dim; ++i) {
-	    res(i, j) = nominator(j * dim + i - j * (j - 1)/2 - j, 1);
-	}
-    }
-
-    res.triangularView<Eigen::Upper>() = res.transpose();
-    return res;
+    return nominator;
 }
 
 template <typename T>
@@ -246,9 +235,12 @@ inline Eigen::MatrixXd decompose_covariance_matrix(const Eigen::MatrixXd &covari
 
     Eigen::VectorXd svd_singular_values;
     Eigen::MatrixXd svd_U;
-    Eigen::MatrixXd svd_V;
 
-    svd<Eigen::MatrixXd>(inv_cov_mat, rank, &svd_U, &svd_V, &svd_singular_values);
+    {
+	Eigen::MatrixXd svd_V;
+
+	svd<Eigen::MatrixXd>(inv_cov_mat, rank, &svd_U, &svd_V, &svd_singular_values);
+    }
 
     std::vector<bool> r_D(rank);
     size_t num_r_D_set = 0;
@@ -260,7 +252,7 @@ inline Eigen::MatrixXd decompose_covariance_matrix(const Eigen::MatrixXd &covari
     size_t n_rows_D = svd_U.rows();
     size_t n_cols_D = svd_U.cols();
     Eigen::MatrixXd u(num_r_D_set, n_rows_D);
-    for (size_t i = 0; i < num_r_D_set; ++i) { // TODO email the authors if this is right?
+    for (size_t i = 0; i < num_r_D_set; ++i) {
 	for (size_t j = 0; j < n_rows_D; ++j) {
 	    u(i, j) = std::sqrt(svd_singular_values[i])*svd_U(j, i);
 	}
@@ -269,7 +261,7 @@ inline Eigen::MatrixXd decompose_covariance_matrix(const Eigen::MatrixXd &covari
     return u;
 }
 
-inline Eigen::MatrixXd decompose_covariance_approximation(const Eigen::SparseMatrix<double> &covariance_matrix, const Eigen::MatrixXd &v, const size_t svd_rank) {
+inline Eigen::MatrixXd decompose_covariance_approximation(const Eigen::MatrixXd &dense_covariance_matrix, const Eigen::MatrixXd &v, const size_t svd_rank) {
     // Calculate the singular value decomposition of `design_matrix`
     // and return the submatrices of the decomposition that correspond
     // to nonzero eigenvalues AND explain `prop_var` of the total
@@ -277,11 +269,11 @@ inline Eigen::MatrixXd decompose_covariance_approximation(const Eigen::SparseMat
 
     Eigen::VectorXd svd_singular_values;
     Eigen::MatrixXd svd_U;
-    Eigen::MatrixXd svd_V;
 
-    Eigen::MatrixXd dense = covariance_matrix;
-    dense.triangularView<Eigen::Upper>() = dense.transpose();
-    svd<Eigen::MatrixXd>(dense, svd_rank, &svd_U, &svd_V, &svd_singular_values);
+    {
+	Eigen::MatrixXd svd_V;
+	svd<Eigen::MatrixXd>(dense_covariance_matrix, svd_rank, &svd_U, &svd_V, &svd_singular_values);
+    }
 
     size_t dim_svd_res = svd_singular_values.size();
     std::vector<bool> r_D(dim_svd_res);
@@ -343,16 +335,36 @@ inline double dropped_predictor_kld(const Eigen::MatrixXd &lambda, const Eigen::
     return std::log(0.5) + log_m + std::log(alpha) + log_m;
 }
 
+inline Eigen::VectorXd get_col(const Eigen::VectorXd &flat, const size_t n_rows, const size_t n_cols, const size_t col_id) {
+    Eigen::VectorXd res(n_rows);
+
+#pragma omp parallel for schedule(static)
+    for (size_t i = col_id; i < n_cols; ++i) {
+	size_t pos_in_lower_tri = col_id * n_rows + i - col_id * (col_id - 1)/2 - col_id;
+	res(i) = flat(pos_in_lower_tri);
+    }
+
+#pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < col_id; ++i) {
+	size_t pos_in_lower_tri = i * n_rows + col_id - i * (i - 1)/2 - i;
+	res(i) = flat(pos_in_lower_tri);
+    }
+
+    return res;
+}
+
 inline double dropped_predictor_kld_lowrank(const Eigen::VectorXd &flat_Lambda, const Eigen::MatrixXd &f_Lambda, const Eigen::MatrixXd &Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::VectorXd &svd_v_col, const double mean_beta, const size_t predictor_id) {
     // TODO: tests
-    const Eigen::MatrixXd &U_Lambda_sub = sherman_r_lowrank(flat_Lambda, f_Lambda, Lambda_chol, v_Sigma_star, svd_v_col);
+    const Eigen::VectorXd &flat_U_Lambda_sub = sherman_r_lowrank(flat_Lambda, f_Lambda, Lambda_chol, v_Sigma_star, svd_v_col);
 
     double alpha = 0.0;
-    const Eigen::VectorXd &predictor_col = U_Lambda_sub.col(predictor_id);
+    const Eigen::VectorXd &predictor_col = get_col(flat_U_Lambda_sub, f_Lambda.rows(), f_Lambda.rows(), predictor_id);
+
 #pragma omp parallel for schedule(static) reduction(+:alpha)
-    for (size_t k = 0; k < U_Lambda_sub.cols(); ++k) {
+    for (size_t k = 0; k < f_Lambda.rows(); ++k) {
+	const Eigen::VectorXd &current_col = get_col(flat_U_Lambda_sub, f_Lambda.rows(), f_Lambda.rows(), k);
 	if (k != predictor_id) {
-	    alpha += predictor_col.dot(U_Lambda_sub.col(k)) * predictor_col(k);
+	    alpha += predictor_col.dot(current_col) * predictor_col(k);
 	}
     }
 
@@ -360,11 +372,12 @@ inline double dropped_predictor_kld_lowrank(const Eigen::VectorXd &flat_Lambda, 
     return std::log(0.5) + log_m + std::log(alpha) + log_m;
 }
 
-inline Eigen::SparseMatrix<double> project_f_draws(const Eigen::MatrixXd &f_draws, const Eigen::MatrixXd &v) {
+inline Eigen::MatrixXd project_f_draws(const Eigen::MatrixXd &f_draws, const Eigen::MatrixXd &v) {
     Eigen::MatrixXd tmp = Eigen::MatrixXd::Zero(v.rows(), v.rows());
     tmp.template selfadjointView<Eigen::Lower>().rankUpdate(v*(f_draws.rowwise() - f_draws.colwise().mean()).transpose());
     tmp.array() /= double(f_draws.rows() - 1);
-    return tmp.sparseView();
+    tmp.triangularView<Eigen::Upper>() = tmp.transpose();
+    return tmp;
 }
 
 inline Eigen::MatrixXd approximate_cov_beta(const Eigen::MatrixXd &f_draws, const Eigen::MatrixXd &u, const Eigen::MatrixXd &v) {
