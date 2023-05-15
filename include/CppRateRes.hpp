@@ -105,21 +105,21 @@ public:
 };
 
 inline Eigen::MatrixXd sherman_r(const Eigen::MatrixXd &ap, const Eigen::VectorXd &u) {
-    const Eigen::MatrixXd &tmp = u * u.adjoint() * ap;
+    const Eigen::MatrixXd &tmp = u * u.transpose() * ap;
     return (ap - ( (ap * tmp).array() / (1 + (tmp).array())).matrix());
 }
 
 inline Eigen::MatrixXd create_denominator(const Eigen::MatrixXd &Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::MatrixXd &svd_cov_beta_v, const size_t predictor_id) {
     // TODO: tests
     Eigen::MatrixXd denominator = Eigen::MatrixXd::Zero(svd_cov_beta_v.rows(), svd_cov_beta_v.rows());
-    const Eigen::MatrixXd &tmp = (v_Sigma_star*svd_cov_beta_v.adjoint().col(predictor_id))*Lambda_chol;
+    const Eigen::MatrixXd &tmp = (v_Sigma_star*svd_cov_beta_v.transpose().col(predictor_id))*Lambda_chol;
     denominator.template selfadjointView<Eigen::Lower>().rankUpdate(tmp);
     return denominator;
 }
 
 inline Eigen::MatrixXd create_nominator(const Eigen::MatrixXd &f_Lambda, const Eigen::MatrixXd &svd_cov_beta_v, const size_t predictor_id) {
     Eigen::MatrixXd nominator = std::move(Eigen::MatrixXd::Zero(svd_cov_beta_v.rows(), svd_cov_beta_v.rows()));
-    const Eigen::MatrixXd &tmp = f_Lambda*svd_cov_beta_v.adjoint().col(predictor_id);
+    const Eigen::MatrixXd &tmp = f_Lambda*svd_cov_beta_v.transpose().col(predictor_id);
     nominator.template selfadjointView<Eigen::Lower>().rankUpdate(tmp);
     return nominator;
 }
@@ -206,15 +206,15 @@ inline void decompose_design_matrix(const Eigen::SparseMatrix<double> &design_ma
 
 inline Eigen::MatrixXd nonlinear_coefficients(const Eigen::SparseMatrix<double> &design_matrix, const Eigen::MatrixXd &f_draws) {
     const Eigen::MatrixXd &inv_X = Eigen::MatrixXd(design_matrix).completeOrthogonalDecomposition().pseudoInverse();
-    return f_draws*inv_X.adjoint();
+    return f_draws*inv_X.transpose();
 
 }
 
 inline Eigen::MatrixXd covariance_matrix(const Eigen::MatrixXd &in) {
     Eigen::MatrixXd tmp = Eigen::MatrixXd::Zero(in.cols(), in.cols());
-    tmp.template selfadjointView<Eigen::Lower>().rankUpdate((in.rowwise() - in.colwise().mean()).adjoint());
+    tmp.template selfadjointView<Eigen::Lower>().rankUpdate((in.rowwise() - in.colwise().mean()).transpose());
     tmp.array() /= double(in.rows() - 1);
-    tmp.template triangularView<Eigen::Upper>() = tmp.adjoint();
+    tmp.template triangularView<Eigen::Upper>() = tmp.transpose();
     return tmp;
 }
 
@@ -291,7 +291,7 @@ inline Eigen::MatrixXd decompose_covariance_approximation(const Eigen::SparseMat
     }
     const Eigen::MatrixXd &inv_v = v.completeOrthogonalDecomposition().pseudoInverse();
 
-    return (U*inv_v).adjoint();
+    return (U*inv_v).transpose();
 }
 
 inline Eigen::VectorXd col_means(const Eigen::MatrixXd &mat) {
@@ -300,8 +300,8 @@ inline Eigen::VectorXd col_means(const Eigen::MatrixXd &mat) {
 
 inline Eigen::MatrixXd create_lambda(const Eigen::MatrixXd &U) {
     Eigen::MatrixXd tmp = Eigen::MatrixXd::Zero(U.cols(), U.cols());
-    tmp.template selfadjointView<Eigen::Lower>().rankUpdate(U.adjoint());
-    tmp.template triangularView<Eigen::Upper>() = tmp.adjoint();
+    tmp.template selfadjointView<Eigen::Lower>().rankUpdate(U.transpose());
+    tmp.template triangularView<Eigen::Upper>() = tmp.transpose();
     return tmp;
 }
 
@@ -345,14 +345,14 @@ inline double dropped_predictor_kld_lowrank(const Eigen::MatrixXd &Lambda, const
 
 inline Eigen::SparseMatrix<double> project_f_draws(const Eigen::MatrixXd &f_draws, const Eigen::MatrixXd &v) {
     Eigen::MatrixXd tmp = Eigen::MatrixXd::Zero(v.rows(), v.rows());
-    tmp.template selfadjointView<Eigen::Lower>().rankUpdate(v*(f_draws.rowwise() - f_draws.colwise().mean()).adjoint());
+    tmp.template selfadjointView<Eigen::Lower>().rankUpdate(v*(f_draws.rowwise() - f_draws.colwise().mean()).transpose());
     tmp.array() /= double(f_draws.rows() - 1);
     return tmp.sparseView();
 }
 
 inline Eigen::MatrixXd approximate_cov_beta(const Eigen::MatrixXd &f_draws, const Eigen::MatrixXd &u, const Eigen::MatrixXd &v) {
     Eigen::MatrixXd tmp = Eigen::MatrixXd::Zero(v.rows(), v.rows());
-    tmp.template selfadjointView<Eigen::Lower>().rankUpdate(v*u*(f_draws.rowwise() - f_draws.colwise().mean()).adjoint());
+    tmp.template selfadjointView<Eigen::Lower>().rankUpdate(v*u*(f_draws.rowwise() - f_draws.colwise().mean()).transpose());
     tmp.array() /= double(f_draws.rows() - 1);
     return tmp.sparseView();
 }
