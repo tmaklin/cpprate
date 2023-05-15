@@ -112,14 +112,14 @@ inline Eigen::MatrixXd sherman_r(const Eigen::MatrixXd &ap, const Eigen::VectorX
 inline Eigen::MatrixXd create_denominator(const Eigen::MatrixXd &Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::MatrixXd &svd_cov_beta_v, const size_t predictor_id) {
     // TODO: tests
     Eigen::MatrixXd denominator = Eigen::MatrixXd::Zero(svd_cov_beta_v.rows(), svd_cov_beta_v.rows());
-    const Eigen::MatrixXd &tmp = (v_Sigma_star*svd_cov_beta_v.transpose().col(predictor_id))*Lambda_chol;
+    const Eigen::MatrixXd &tmp = (v_Sigma_star*svd_cov_beta_v.row(predictor_id))*Lambda_chol;
     denominator.template selfadjointView<Eigen::Lower>().rankUpdate(tmp);
     return denominator;
 }
 
 inline Eigen::MatrixXd create_nominator(const Eigen::MatrixXd &f_Lambda, const Eigen::MatrixXd &svd_cov_beta_v, const size_t predictor_id) {
     Eigen::MatrixXd nominator = std::move(Eigen::MatrixXd::Zero(svd_cov_beta_v.rows(), svd_cov_beta_v.rows()));
-    const Eigen::MatrixXd &tmp = f_Lambda*svd_cov_beta_v.transpose().col(predictor_id);
+    const Eigen::MatrixXd &tmp = f_Lambda*svd_cov_beta_v.row(predictor_id);
     nominator.template selfadjointView<Eigen::Lower>().rankUpdate(tmp);
     return nominator;
 }
