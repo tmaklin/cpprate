@@ -132,23 +132,12 @@ inline Eigen::VectorXd create_nominator(const Eigen::MatrixXd &f_Lambda, const E
     return nominator;
 }
 
-inline Eigen::MatrixXd sherman_r_lowrank(const Eigen::MatrixXd &Lambda, const Eigen::MatrixXd &f_Lambda, const Eigen::MatrixXd &Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::VectorXd &svd_v_col, const size_t predictor_id) {
-    // TODO: tests
-    const double denominator = create_denominator(Lambda_chol, v_Sigma_star, svd_v_col, predictor_id);
-    Eigen::MatrixXd nominator = create_nominator(f_Lambda, svd_v_col, predictor_id);
-
-#pragma omp parallel for schedule(dynamic, 12)
-    for (size_t j = 0; j < nominator.cols(); ++j) {
-	for (size_t i = j; i < nominator.rows(); ++i) {
-	    nominator(i, j) = Lambda(i, j) - (nominator(i, j)/denominator);
->>>>>>> constant-denominator
-
 inline Eigen::MatrixXd sherman_r_lowrank(const Eigen::VectorXd &flat_Lambda, const Eigen::MatrixXd &f_Lambda, const Eigen::MatrixXd &Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::VectorXd &svd_v_col) {
     // TODO: tests
-    const Eigen::VectorXd &denominator = create_denominator(Lambda_chol, v_Sigma_star, svd_v_col);
+    const double denominator = create_denominator(Lambda_chol, v_Sigma_star, svd_v_col);
     Eigen::VectorXd nominator = create_nominator(f_Lambda, svd_v_col);
 
-    nominator.array() /= denominator.array() + 1.0;
+    nominator.array() /= denominator;
     nominator.array() *= -1;
     nominator.array() += flat_Lambda.array();
 
