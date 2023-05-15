@@ -41,12 +41,17 @@
 #include <Eigen/SparseCore>
 
 #include "RedSVD.h"
+#include <omp.h>
 
 #include <vector>
 #include <cstddef>
 #include <cmath>
 #include <iostream>
 #include <numeric>
+
+#pragma omp declare reduction(vec_double_plus : std::vector<double> :	\
+                              std::transform(omp_out.begin(), omp_out.end(), omp_in.begin(), omp_out.begin(), std::plus<double>())) \
+                    initializer(omp_priv = decltype(omp_orig)(omp_orig.size()))
 
 inline std::vector<double> rate_from_kld(const std::vector<double> &log_kld, const double kld_sum) {
     std::vector<double> RATE(log_kld.size());
@@ -357,17 +362,27 @@ inline double dropped_predictor_kld_lowrank(const Eigen::VectorXd &flat_Lambda, 
     // TODO: tests
     const Eigen::VectorXd &flat_U_Lambda_sub = sherman_r_lowrank(flat_Lambda, f_Lambda, Lambda_chol, v_Sigma_star, svd_v_col);
 
-    double alpha = 0.0;
-    const Eigen::VectorXd &predictor_col = get_col(flat_U_Lambda_sub, f_Lambda.rows(), f_Lambda.rows(), predictor_id);
+    size_t dim = f_Lambda.rows();
+    const Eigen::VectorXd &predictor_col = get_col(flat_U_Lambda_sub, dim, dim, predictor_id);
+    std::vector<double> dot_prods(f_Lambda.rows(), 0.0);
 
-#pragma omp parallel for schedule(static) reduction(+:alpha)
-    for (size_t k = 0; k < f_Lambda.rows(); ++k) {
-	const Eigen::VectorXd &current_col = get_col(flat_U_Lambda_sub, f_Lambda.rows(), f_Lambda.rows(), k);
-	if (k != predictor_id) {
-	    alpha += predictor_col.dot(current_col) * predictor_col(k);
+#pragma omp parallel for schedule(static) reduction(vec_double_plus:dot_prods)
+    for (size_t j = 0; j < dim; ++j) {
+	if (j != predictor_id) {
+	    size_t pos_in_lower_tri = j * dim + j - j * (j - 1)/2 - j;
+	    dot_prods[j] += (predictor_col(j) * flat_U_Lambda_sub(pos_in_lower_tri)) * predictor_col(j);
+	    for (size_t i = (j + 1); i < dim; ++i) {
+		pos_in_lower_tri = j * dim + i - j * (j - 1)/2 - j;
+		if (i != predictor_id) {
+		    double res = (predictor_col(i) * flat_U_Lambda_sub(pos_in_lower_tri)) * predictor_col(j);
+		    dot_prods[j] += res;
+		    dot_prods[i] += res;
+		}
+	    }
 	}
     }
 
+    double alpha = std::accumulate(dot_prods.begin(), dot_prods.end(), 0.0);
     double log_m = std::log(std::abs(mean_beta));
     return std::log(0.5) + log_m + std::log(alpha) + log_m;
 }
