@@ -109,28 +109,17 @@ inline Eigen::MatrixXd sherman_r(const Eigen::MatrixXd &ap, const Eigen::VectorX
     return (ap - ( (ap * tmp).array() / (1 + (tmp).array())).matrix());
 }
 
-inline Eigen::VectorXd create_denominator(const Eigen::MatrixXd &Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::VectorXd &svd_v_col) {
+inline double create_denominator(const Eigen::MatrixXd &Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::VectorXd &svd_v_col) {
     // TODO: tests
     const Eigen::VectorXd &tmp = (v_Sigma_star*svd_v_col).transpose()*Lambda_chol;
-
-    size_t dim = tmp.size();
-    Eigen::VectorXd denominator;
-    denominator.resize(dim * (dim + 1)/2, 1);
-
-    for (size_t j = 0; j < dim; ++j) {
-	for (size_t i = j; i < dim; ++i) {
-	    denominator(j * dim + i  - j * (j - 1)/2 - j, 1) = tmp(i) * tmp(j);
-	}
-    }
-
-    return denominator;
+    return tmp.squaredNorm() + 1.0;
 }
 
 inline Eigen::VectorXd create_nominator(const Eigen::MatrixXd &f_Lambda, const Eigen::VectorXd &svd_v_col) {
     // TODO: tests
     const Eigen::VectorXd &tmp = f_Lambda*svd_v_col;
 
-    size_t dim = tmp.size();
+    size_t dim = f_Lambda.rows().size();
     Eigen::VectorXd nominator;
     nominator.resize(dim * (dim + 1)/2, 1);
 
@@ -142,6 +131,17 @@ inline Eigen::VectorXd create_nominator(const Eigen::MatrixXd &f_Lambda, const E
 
     return nominator;
 }
+
+inline Eigen::MatrixXd sherman_r_lowrank(const Eigen::MatrixXd &Lambda, const Eigen::MatrixXd &f_Lambda, const Eigen::MatrixXd &Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::VectorXd &svd_v_col, const size_t predictor_id) {
+    // TODO: tests
+    const double denominator = create_denominator(Lambda_chol, v_Sigma_star, svd_v_col, predictor_id);
+    Eigen::MatrixXd nominator = create_nominator(f_Lambda, svd_v_col, predictor_id);
+
+#pragma omp parallel for schedule(dynamic, 12)
+    for (size_t j = 0; j < nominator.cols(); ++j) {
+	for (size_t i = j; i < nominator.rows(); ++i) {
+	    nominator(i, j) = Lambda(i, j) - (nominator(i, j)/denominator);
+>>>>>>> constant-denominator
 
 inline Eigen::MatrixXd sherman_r_lowrank(const Eigen::VectorXd &flat_Lambda, const Eigen::MatrixXd &f_Lambda, const Eigen::MatrixXd &Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::VectorXd &svd_v_col) {
     // TODO: tests
