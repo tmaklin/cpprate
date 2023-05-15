@@ -117,7 +117,6 @@ inline Eigen::MatrixXd sherman_r_lowrank(const Eigen::MatrixXd &Lambda, const Ei
     Eigen::MatrixXd nominator = std::move(Eigen::MatrixXd::Zero(svd_cov_beta_v.rows(), svd_cov_beta_v.rows()));
     nominator.template selfadjointView<Eigen::Lower>().rankUpdate(Lambda.triangularView<Eigen::Lower>()*(svd_cov_beta_v*Sigma_star.triangularView<Eigen::Lower>()*svd_cov_beta_v.adjoint().col(predictor_id)));
 
-#pragma omp parallel for schedule(dynamic, 12)
     for (size_t j = 0; j < nominator.cols(); ++j) {
 	for (size_t i = j; i < nominator.rows(); ++i) {
 	    nominator(i, j) = Lambda(i, j) - (nominator(i, j)/(denominator(i, j) + 1.0));
@@ -321,7 +320,6 @@ inline double dropped_predictor_kld_lowrank(const Eigen::MatrixXd &Lambda, const
 
     double alpha = 0.0;
     const Eigen::VectorXd &predictor_col = U_Lambda_sub.col(predictor_id);
-#pragma omp parallel for schedule(static) reduction(+:alpha)
     for (size_t k = 0; k < U_Lambda_sub.cols(); ++k) {
 	if (k != predictor_id) {
 	    alpha += predictor_col.dot(U_Lambda_sub.col(k)) * predictor_col(k);

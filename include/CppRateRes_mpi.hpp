@@ -139,6 +139,7 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
     tmp_mat.resize(0, 0);
 
     std::vector<double> log_KLD_partial(n_snps_per_task);
+#pragma omp parallel for schedule(static)
     for (size_t i = 0; i < n_snps_per_task; ++i) {
 	log_KLD_partial[i] = dropped_predictor_kld_lowrank(Lambda, Lambda_chol, Sigma_star, svd_design_matrix_v, col_means_beta[i], start_id + i);
     }
