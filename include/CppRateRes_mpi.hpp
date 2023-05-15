@@ -141,10 +141,12 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
     MPI_Bcast(Lambda_chol.data(), Lambda_chol.rows()*Lambda_chol.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Bcast(svd_design_matrix_v.data(), svd_design_matrix_v.rows()*svd_design_matrix_v.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
+    svd_design_matrix_v.transposeInPlace();
+
     std::vector<double> log_KLD_partial(n_snps_per_task);
     for (size_t i = 0; i < n_snps_per_task; ++i) {
-	std::cerr << i << std::endl;
-	log_KLD_partial[i] = dropped_predictor_kld_lowrank(Lambda, Lambda_f, Lambda_chol, v_Sigma_star, svd_design_matrix_v, col_means_beta[i], start_id + i);
+	// TODO distribute only the necessary rows of svd_design_matrix_v
+	log_KLD_partial[i] = dropped_predictor_kld_lowrank(Lambda, Lambda_f, Lambda_chol, v_Sigma_star, svd_design_matrix_v.col(start_id + i), col_means_beta[i], start_id + i);
     }
 
     std::vector<double> KLD_partial;
