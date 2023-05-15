@@ -119,7 +119,7 @@ inline Eigen::VectorXd create_nominator(const Eigen::MatrixXd &f_Lambda, const E
     // TODO: tests
     const Eigen::VectorXd &tmp = f_Lambda*svd_v_col;
 
-    size_t dim = f_Lambda.rows().size();
+    size_t dim = f_Lambda.rows();
     Eigen::VectorXd nominator;
     nominator.resize(dim * (dim + 1)/2, 1);
 
