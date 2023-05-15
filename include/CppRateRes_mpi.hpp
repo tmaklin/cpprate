@@ -55,39 +55,41 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
 
     Eigen::VectorXd col_means_beta(0);
     Eigen::MatrixXd v_Sigma_star(0, 0);
-    Eigen::MatrixXd Lambda(0, 0);
     Eigen::MatrixXd Lambda_chol(0, 0);
     Eigen::MatrixXd Lambda_f(0, 0);
     Eigen::MatrixXd svd_design_matrix_v(0, 0);
+    Eigen::VectorXd flat_Lambda(0);
     if (rank == 0) {
+	Eigen::MatrixXd Lambda = Eigen::MatrixXd::Zero(n_snps, n_snps);
 	Eigen::MatrixXd u;
 	decompose_design_matrix(design_matrix, svd_rank, prop_var, &u, &svd_design_matrix_v);
-	Lambda = std::move(Eigen::MatrixXd::Zero(n_snps, n_snps));
-	col_means_beta = std::move(approximate_beta_means(f_draws, u, svd_design_matrix_v));
-	v_Sigma_star = svd_design_matrix_v * project_f_draws(f_draws, u).triangularView<Eigen::Lower>();
-	Lambda_chol = decompose_covariance_approximation(project_f_draws(f_draws, u), svd_design_matrix_v, svd_rank);
+	col_means_beta = approximate_beta_means(f_draws, u, svd_design_matrix_v);
+	const Eigen::SparseMatrix<double> &Sigma_star = project_f_draws(f_draws, u);
+	v_Sigma_star = svd_design_matrix_v * Sigma_star.triangularView<Eigen::Lower>();
+	Lambda_chol = decompose_covariance_approximation(Sigma_star, svd_design_matrix_v, svd_rank);
 	Lambda.template selfadjointView<Eigen::Lower>().rankUpdate(Lambda_chol);
 	Lambda_f = Lambda.triangularView<Eigen::Lower>() * v_Sigma_star;
+	flat_Lambda = flatten_lambda(Lambda);
+	svd_design_matrix_v.transposeInPlace();
     }
     f_draws.resize(0, 0);
     design_matrix.resize(0, 0);
 
+    // Already known (argument)
+    size_t flat_Lambda_size = n_snps * (n_snps + 1)/2;
+
     size_t Sigma_star_rows = v_Sigma_star.rows();
-    size_t Sigma_star_cols = v_Sigma_star.rows();
-    size_t Lambda_rows = Lambda.rows();
-    size_t Lambda_cols = Lambda.cols();
+    size_t Sigma_star_cols = v_Sigma_star.cols();
     size_t Lambda_chol_rows = Lambda_chol.rows();
     size_t Lambda_chol_cols = Lambda_chol.cols();
     size_t Lambda_f_rows = Lambda_f.rows();
     size_t Lambda_f_cols = Lambda_f.cols();
     size_t svd_design_matrix_v_rows = svd_design_matrix_v.rows();
-    size_t svd_design_matrix_v_cols = svd_design_matrix_v.rows();
+    size_t svd_design_matrix_v_cols = svd_design_matrix_v.cols();
 
     // Broadcast sizes
     MPI_Bcast(&Sigma_star_rows, 1, MPI_UNSIGNED_LONG_LONG, 0, MPI_COMM_WORLD);
     MPI_Bcast(&Sigma_star_cols, 1, MPI_UNSIGNED_LONG_LONG, 0, MPI_COMM_WORLD);
-    MPI_Bcast(&Lambda_rows, 1, MPI_UNSIGNED_LONG_LONG, 0, MPI_COMM_WORLD);
-    MPI_Bcast(&Lambda_cols, 1, MPI_UNSIGNED_LONG_LONG, 0, MPI_COMM_WORLD);
     MPI_Bcast(&Lambda_chol_rows, 1, MPI_UNSIGNED_LONG_LONG, 0, MPI_COMM_WORLD);
     MPI_Bcast(&Lambda_chol_cols, 1, MPI_UNSIGNED_LONG_LONG, 0, MPI_COMM_WORLD);
     MPI_Bcast(&Lambda_f_rows, 1, MPI_UNSIGNED_LONG_LONG, 0, MPI_COMM_WORLD);
@@ -106,11 +108,11 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
 
     if (rank != 0) {
 	v_Sigma_star.resize(Sigma_star_rows, Sigma_star_cols);
-	Lambda.resize(Lambda_rows, Lambda_cols);
 	Lambda_f.resize(Lambda_f_rows, Lambda_f_cols);
 	Lambda_chol.resize(Lambda_chol_rows, Lambda_chol_cols);
 	svd_design_matrix_v.resize(svd_design_matrix_v_rows, svd_design_matrix_v_cols);
 	col_means_beta.resize(n_snps_per_task);
+	flat_Lambda.resize(flat_Lambda_size);
     }
 
     // Eigen::VectorXd col_means_beta_partial(n_snps_per_task);
@@ -136,17 +138,15 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
 
     // Broadcast variables needed by all processes
     MPI_Bcast(v_Sigma_star.data(), v_Sigma_star.rows()*v_Sigma_star.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    MPI_Bcast(Lambda.data(), Lambda.rows()*Lambda.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Bcast(Lambda_f.data(), Lambda_f.rows()*Lambda_f.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(flat_Lambda.data(), flat_Lambda_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Bcast(Lambda_chol.data(), Lambda_chol.rows()*Lambda_chol.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Bcast(svd_design_matrix_v.data(), svd_design_matrix_v.rows()*svd_design_matrix_v.cols(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
-
-    svd_design_matrix_v.transposeInPlace();
 
     std::vector<double> log_KLD_partial(n_snps_per_task);
     for (size_t i = 0; i < n_snps_per_task; ++i) {
 	// TODO distribute only the necessary rows of svd_design_matrix_v
-	log_KLD_partial[i] = dropped_predictor_kld_lowrank(Lambda, Lambda_f, Lambda_chol, v_Sigma_star, svd_design_matrix_v.col(start_id + i), col_means_beta[i], start_id + i);
+	log_KLD_partial[i] = dropped_predictor_kld_lowrank(flat_Lambda, Lambda_f, Lambda_chol, v_Sigma_star, svd_design_matrix_v.col(start_id + i), col_means_beta[i], start_id + i);
     }
 
     std::vector<double> KLD_partial;
