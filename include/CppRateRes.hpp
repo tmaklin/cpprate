@@ -114,24 +114,39 @@ inline Eigen::MatrixXd sherman_r(const Eigen::MatrixXd &ap, const Eigen::VectorX
     return (ap - ( (ap * tmp).array() / (1 + (tmp).array())).matrix());
 }
 
-inline double create_denominator(const Eigen::MatrixXd &Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::VectorXd &svd_v_col) {
+inline double create_denominator(const Eigen::MatrixXd &t_Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::VectorXd &svd_v_col) {
     // TODO: tests
-    const Eigen::VectorXd &tmp = (v_Sigma_star*svd_v_col).transpose()*Lambda_chol;
-    return tmp.squaredNorm() + 1.0;
+    double square_norm = 0.0;
+#pragma omp parallel for schedule(static) reduction(+:square_norm)
+    for (size_t j = 0; j < v_Sigma_star.cols(); ++j) {
+	for (size_t i = 0; i < v_Sigma_star.rows(); ++i) {
+	    double prod = (v_Sigma_star(i, j) * svd_v_col(j)) * t_Lambda_chol(i, j);
+	    square_norm += prod * prod;
+	}
+    }
+
+    return square_norm + 1.0;
 }
 
 inline Eigen::VectorXd create_nominator(const Eigen::MatrixXd &f_Lambda, const Eigen::VectorXd &svd_v_col) {
     // TODO: tests
-    const Eigen::VectorXd &tmp = f_Lambda*svd_v_col;
-
     size_t dim = f_Lambda.rows();
+    std::vector<double> tmp(dim, 0.0);
+
+#pragma omp parallel for schedule(static) reduction(vec_double_plus:tmp)
+    for (size_t j = 0; j < f_Lambda.cols(); ++j) {
+	for (size_t i = 0; i < dim; ++i) {
+	    tmp[i] += f_Lambda(i, j) * svd_v_col(j);
+	}
+    }
+
     Eigen::VectorXd nominator;
     nominator.resize(dim * (dim + 1)/2, 1);
 
-#pragma omp parallel for schedule(static)
-    for (size_t j = 0; j < dim; ++j) {
+#pragma omp parallel for schedule(guided) // Last chunks are very small so "reverse guided" works ok
+    for (size_t j = dim; j > 0; --j) {
 	for (size_t i = j; i < dim; ++i) {
-	    nominator(j * dim + i - j * (j - 1)/2 - j, 1) = tmp(i) * tmp(j);
+	    nominator(j * dim + i - j * (j - 1)/2 - j, 1) = tmp[i] * tmp[j];
 	}
     }
 
@@ -143,9 +158,11 @@ inline Eigen::VectorXd sherman_r_lowrank(const Eigen::VectorXd &flat_Lambda, con
     const double denominator = create_denominator(Lambda_chol, v_Sigma_star, svd_v_col);
     Eigen::VectorXd nominator = create_nominator(f_Lambda, svd_v_col);
 
-    nominator.array() /= denominator;
-    nominator.array() *= -1;
-    nominator.array() += flat_Lambda.array();
+    size_t dim = f_Lambda.rows() * (f_Lambda.rows() + 1)/2;
+#pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < dim; ++i) {
+	nominator(i) = flat_Lambda(i) - (nominator(i)/denominator);
+    }
 
     return nominator;
 }
@@ -366,8 +383,8 @@ inline double dropped_predictor_kld_lowrank(const Eigen::VectorXd &flat_Lambda, 
     const Eigen::VectorXd &predictor_col = get_col(flat_U_Lambda_sub, dim, dim, predictor_id);
     std::vector<double> dot_prods(f_Lambda.rows(), 0.0);
 
-#pragma omp parallel for schedule(static) reduction(vec_double_plus:dot_prods)
-    for (size_t j = 0; j < dim; ++j) {
+#pragma omp parallel for schedule(guided) reduction(vec_double_plus:dot_prods)
+    for (size_t j = dim; j > 0; --j) {
 	if (j != predictor_id) {
 	    size_t pos_in_lower_tri = j * dim + j - j * (j - 1)/2 - j;
 	    dot_prods[j] += (predictor_col(j) * flat_U_Lambda_sub(pos_in_lower_tri)) * predictor_col(j);
@@ -462,7 +479,7 @@ inline RATEd RATE_lowrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMat
 
     const Eigen::VectorXd &col_means_beta = approximate_beta_means(f_draws, u, svd_design_matrix_v);
     const Eigen::MatrixXd &v_Sigma_star = svd_design_matrix_v*project_f_draws(f_draws, u).triangularView<Eigen::Lower>();
-    const Eigen::MatrixXd &Lambda_chol = decompose_covariance_approximation(project_f_draws(f_draws, u), svd_design_matrix_v, svd_rank);
+    Eigen::MatrixXd Lambda_chol = decompose_covariance_approximation(project_f_draws(f_draws, u), svd_design_matrix_v, svd_rank);
 
     Eigen::MatrixXd Lambda_f;
     Eigen::VectorXd flat_Lambda;
@@ -473,6 +490,8 @@ inline RATEd RATE_lowrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMat
 	Lambda_f = Lambda.triangularView<Eigen::Lower>() * v_Sigma_star;
 	flat_Lambda = flatten_lambda(Lambda);
     }
+
+    Lambda_chol.transposeInPlace();
 
     u.resize(0, 0);
 
