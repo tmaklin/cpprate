@@ -75,6 +75,7 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
 	Lambda_f = Lambda.triangularView<Eigen::Lower>() * v_Sigma_star;
 	flat_Lambda = flatten_lambda(Lambda);
 
+	Lambda_chol.transposeInPlace();
 	svd_design_matrix_v.transposeInPlace();
     }
     f_draws.resize(0, 0);
