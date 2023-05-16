@@ -461,9 +461,11 @@ inline Eigen::VectorXd flatten_lambda(const Eigen::MatrixXd &Lambda) {
     Eigen::VectorXd flat_lambda;
     flat_lambda.resize(dim * (dim + 1)/2, 1);
 
-    for (size_t j = 0; j < dim; ++j) {
+#pragma omp parallel for schedule(guided)
+    for (size_t j = dim; j > 0; --j) {
+	size_t col_start = j * dim - j * (j - 1)/2 - j;
 	for (size_t i = j; i < dim; ++i) {
-	    flat_lambda(j * dim + i - j * (j - 1)/2 - j, 1) = Lambda(i, j);
+	    flat_lambda(col_start + i) = Lambda(i, j);
 	}
     }
 
