@@ -144,7 +144,7 @@ inline Eigen::VectorXd create_nominator(const Eigen::MatrixXd &f_Lambda, const E
     nominator.resize(dim * (dim + 1)/2, 1);
 
 #pragma omp parallel for schedule(guided) // Last chunks are very small so "reverse guided" works ok
-    for (size_t j = dim; j > 0; --j) {
+    for (size_t j = dim - 1; j > 0; --j) {
 	size_t col_start = j * dim - j * (j - 1)/2 - j;
 	for (size_t i = j; i < dim; ++i) {
 	    nominator(col_start + i) = tmp[i] * tmp[j];
@@ -385,7 +385,7 @@ inline double dropped_predictor_kld_lowrank(const Eigen::VectorXd &flat_Lambda, 
     std::vector<double> dot_prods(f_Lambda.rows(), 0.0);
 
 #pragma omp parallel for schedule(guided) reduction(vec_double_plus:dot_prods)
-    for (size_t j = dim; j > 0; --j) {
+    for (size_t j = dim - 1; j > 0; --j) {
 	if (j != predictor_id) {
 	    size_t col_start = j * dim - j * (j - 1)/2 - j;
 	    dot_prods[j] += (predictor_col(j) * flat_U_Lambda_sub(col_start + j)) * predictor_col(j);
@@ -462,7 +462,7 @@ inline Eigen::VectorXd flatten_lambda(const Eigen::MatrixXd &Lambda) {
     flat_lambda.resize(dim * (dim + 1)/2, 1);
 
 #pragma omp parallel for schedule(guided)
-    for (size_t j = dim; j > 0; --j) {
+    for (size_t j = dim - 1; j > 0; --j) {
 	size_t col_start = j * dim - j * (j - 1)/2 - j;
 	for (size_t i = j; i < dim; ++i) {
 	    flat_lambda(col_start + i) = Lambda(i, j);
