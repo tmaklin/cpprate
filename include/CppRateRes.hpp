@@ -383,24 +383,23 @@ inline double dropped_predictor_kld_lowrank(const std::vector<double> &flat_Lamb
 
     size_t dim = f_Lambda.rows();
     const std::vector<double> &predictor_col = get_col(flat_U_Lambda_sub, dim, dim, predictor_id);
-    std::vector<double> dot_prods(f_Lambda.rows(), 0.0);
+    double alpha = 0.0;
 
-#pragma omp parallel for schedule(guided) reduction(vec_double_plus:dot_prods)
+#pragma omp parallel for schedule(guided) reduction(+:alpha)
     for (int64_t j = dim - 1; j >= 0; --j) {
 	if (j != predictor_id) {
 	    size_t col_start = j * dim - j * (j - 1)/2 - j;
-	    dot_prods[j] += (predictor_col[j] * flat_U_Lambda_sub[col_start + j]) * predictor_col[j];
+	    alpha += (predictor_col[j] * flat_U_Lambda_sub[col_start + j]) * predictor_col[j];
 	    for (size_t i = (j + 1); i < dim; ++i) {
 		if (i != predictor_id) {
 		    double res = (predictor_col[i] * flat_U_Lambda_sub[col_start + i]) * predictor_col[j];
-		    dot_prods[j] += res;
-		    dot_prods[i] += res;
+		    alpha += res;
+		    alpha += res;
 		}
 	    }
 	}
     }
 
-    double alpha = std::accumulate(dot_prods.begin(), dot_prods.end(), 0.0);
     double log_m = std::log(std::abs(mean_beta));
     return std::log(0.5) + log_m + std::log(alpha) + log_m;
 }
