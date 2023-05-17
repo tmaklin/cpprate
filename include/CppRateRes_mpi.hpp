@@ -58,7 +58,7 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
     Eigen::MatrixXd Lambda_chol(0, 0);
     Eigen::MatrixXd Lambda_f(0, 0);
     Eigen::MatrixXd svd_design_matrix_v(0, 0);
-    Eigen::VectorXd flat_Lambda(0);
+    std::vector<double> flat_Lambda(0);
     if (rank == 0) {
 	Eigen::MatrixXd u;
 	decompose_design_matrix(design_matrix, svd_rank, prop_var, &u, &svd_design_matrix_v);

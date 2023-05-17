@@ -128,7 +128,7 @@ inline double create_denominator(const Eigen::MatrixXd &t_Lambda_chol, const Eig
     return square_norm + 1.0;
 }
 
-inline Eigen::VectorXd create_nominator(const Eigen::MatrixXd &f_Lambda, const Eigen::VectorXd &svd_v_col) {
+inline std::vector<double> create_nominator(const Eigen::MatrixXd &f_Lambda, const Eigen::VectorXd &svd_v_col) {
     // TODO: tests
     size_t dim = f_Lambda.rows();
     std::vector<double> tmp(dim, 0.0);
@@ -140,29 +140,28 @@ inline Eigen::VectorXd create_nominator(const Eigen::MatrixXd &f_Lambda, const E
 	}
     }
 
-    Eigen::VectorXd nominator;
-    nominator.resize(dim * (dim + 1)/2, 1);
+    std::vector<double> nominator(dim * (dim + 1)/2, 0.0);
 
 #pragma omp parallel for schedule(guided) // Last chunks are very small so "reverse guided" works ok
     for (size_t j = dim - 1; j > 0; --j) {
 	size_t col_start = j * dim - j * (j - 1)/2 - j;
 	for (size_t i = j; i < dim; ++i) {
-	    nominator(col_start + i) = tmp[i] * tmp[j];
+	    nominator[col_start + i] = tmp[i] * tmp[j];
 	}
     }
 
     return nominator;
 }
 
-inline Eigen::VectorXd sherman_r_lowrank(const Eigen::VectorXd &flat_Lambda, const Eigen::MatrixXd &f_Lambda, const Eigen::MatrixXd &Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::VectorXd &svd_v_col) {
+inline std::vector<double> sherman_r_lowrank(const std::vector<double> &flat_Lambda, const Eigen::MatrixXd &f_Lambda, const Eigen::MatrixXd &Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::VectorXd &svd_v_col) {
     // TODO: tests
     const double denominator = create_denominator(Lambda_chol, v_Sigma_star, svd_v_col);
-    Eigen::VectorXd nominator = create_nominator(f_Lambda, svd_v_col);
+    std::vector<double> nominator = create_nominator(f_Lambda, svd_v_col);
 
     size_t dim = f_Lambda.rows() * (f_Lambda.rows() + 1)/2;
 #pragma omp parallel for schedule(static)
     for (size_t i = 0; i < dim; ++i) {
-	nominator(i) = flat_Lambda(i) - (nominator(i)/denominator);
+	nominator[i] = flat_Lambda[i] - (nominator[i]/denominator);
     }
 
     return nominator;
@@ -358,40 +357,40 @@ inline double dropped_predictor_kld(const Eigen::MatrixXd &lambda, const Eigen::
     return std::log(0.5) + log_m + std::log(alpha) + log_m;
 }
 
-inline Eigen::VectorXd get_col(const Eigen::VectorXd &flat, const size_t n_rows, const size_t n_cols, const size_t col_id) {
-    Eigen::VectorXd res(n_rows);
+inline std::vector<double> get_col(const std::vector<double> &flat, const size_t n_rows, const size_t n_cols, const size_t col_id) {
+    std::vector<double> res(n_rows);
 
 #pragma omp parallel for schedule(static)
     for (size_t i = col_id; i < n_cols; ++i) {
 	size_t pos_in_lower_tri = col_id * n_rows + i - col_id * (col_id - 1)/2 - col_id;
-	res(i) = flat(pos_in_lower_tri);
+	res[i] = flat[pos_in_lower_tri];
     }
 
 #pragma omp parallel for schedule(static)
     for (size_t i = 0; i < col_id; ++i) {
 	size_t pos_in_lower_tri = i * n_rows + col_id - i * (i - 1)/2 - i;
-	res(i) = flat(pos_in_lower_tri);
+	res[i] = flat[pos_in_lower_tri];
     }
 
     return res;
 }
 
-inline double dropped_predictor_kld_lowrank(const Eigen::VectorXd &flat_Lambda, const Eigen::MatrixXd &f_Lambda, const Eigen::MatrixXd &Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::VectorXd &svd_v_col, const double mean_beta, const size_t predictor_id) {
+inline double dropped_predictor_kld_lowrank(const std::vector<double> &flat_Lambda, const Eigen::MatrixXd &f_Lambda, const Eigen::MatrixXd &Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::VectorXd &svd_v_col, const double mean_beta, const size_t predictor_id) {
     // TODO: tests
-    const Eigen::VectorXd &flat_U_Lambda_sub = sherman_r_lowrank(flat_Lambda, f_Lambda, Lambda_chol, v_Sigma_star, svd_v_col);
+    const std::vector<double> &flat_U_Lambda_sub = sherman_r_lowrank(flat_Lambda, f_Lambda, Lambda_chol, v_Sigma_star, svd_v_col);
 
     size_t dim = f_Lambda.rows();
-    const Eigen::VectorXd &predictor_col = get_col(flat_U_Lambda_sub, dim, dim, predictor_id);
+    const std::vector<double> &predictor_col = get_col(flat_U_Lambda_sub, dim, dim, predictor_id);
     std::vector<double> dot_prods(f_Lambda.rows(), 0.0);
 
 #pragma omp parallel for schedule(guided) reduction(vec_double_plus:dot_prods)
     for (size_t j = dim - 1; j > 0; --j) {
 	if (j != predictor_id) {
 	    size_t col_start = j * dim - j * (j - 1)/2 - j;
-	    dot_prods[j] += (predictor_col(j) * flat_U_Lambda_sub(col_start + j)) * predictor_col(j);
+	    dot_prods[j] += (predictor_col[j] * flat_U_Lambda_sub[col_start + j]) * predictor_col[j];
 	    for (size_t i = (j + 1); i < dim; ++i) {
 		if (i != predictor_id) {
-		    double res = (predictor_col(i) * flat_U_Lambda_sub(col_start + i)) * predictor_col(j);
+		    double res = (predictor_col[i] * flat_U_Lambda_sub[col_start + i]) * predictor_col[j];
 		    dot_prods[j] += res;
 		    dot_prods[i] += res;
 		}
@@ -427,7 +426,6 @@ template <typename T>
 inline Eigen::MatrixXd vec_to_dense_matrix(const std::vector<T> &vec, const size_t n_rows, const size_t n_cols) {
     // TODO tests
     Eigen::MatrixXd mat(n_rows, n_cols);
-#pragma omp parallel for schedule(static)
     for (size_t i = 0; i < n_rows; ++i) {
 	for (size_t j = 0; j < n_cols; ++j) {
 	    mat(i, j) = (T)vec[i*n_cols + j];
@@ -455,17 +453,15 @@ Eigen::SparseMatrix<T> vec_to_sparse_matrix(const std::vector<V> &vec, const siz
     return mat;
 }
 
-inline Eigen::VectorXd flatten_lambda(const Eigen::MatrixXd &Lambda) {
+inline std::vector<double> flatten_lambda(const Eigen::MatrixXd &Lambda) {
     // TODO tests
     size_t dim = Lambda.rows();
-    Eigen::VectorXd flat_lambda;
-    flat_lambda.resize(dim * (dim + 1)/2, 1);
+    std::vector<double> flat_lambda(dim * (dim + 1)/2, 0.0);
 
-#pragma omp parallel for schedule(guided)
     for (size_t j = dim - 1; j > 0; --j) {
 	size_t col_start = j * dim - j * (j - 1)/2 - j;
 	for (size_t i = j; i < dim; ++i) {
-	    flat_lambda(col_start + i) = Lambda(i, j);
+	    flat_lambda[col_start + i] = Lambda(i, j);
 	}
     }
 
@@ -484,7 +480,7 @@ inline RATEd RATE_lowrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMat
     Eigen::MatrixXd Lambda_chol = decompose_covariance_approximation(project_f_draws(f_draws, u), svd_design_matrix_v, svd_rank);
 
     Eigen::MatrixXd Lambda_f;
-    Eigen::VectorXd flat_Lambda;
+    std::vector<double> flat_Lambda;
 
     {
 	Eigen::MatrixXd Lambda = Eigen::MatrixXd::Zero(n_snps, n_snps);
