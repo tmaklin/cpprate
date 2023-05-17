@@ -54,7 +54,7 @@ class LowrankIntegrationTest : public ::testing::Test {
 	this->n_f_draws = 100;
 	this->n_obs = 10;
 	this->rank_r = 10;
-	this->prop_var = 1.0;
+	this->prop_var = 1.1;
 
 	// Input data
 	this->design_matrix = vec_to_sparse_matrix<double, bool>(std::vector<bool>(
