@@ -143,7 +143,7 @@ inline std::vector<double> create_nominator(const Eigen::MatrixXd &f_Lambda, con
     std::vector<double> nominator(dim * (dim + 1)/2, 0.0);
 
 #pragma omp parallel for schedule(guided) // Last chunks are very small so "reverse guided" works ok
-    for (size_t j = dim - 1; j > 0; --j) {
+    for (int64_t j = dim - 1; j >= 0; --j) {
 	size_t col_start = j * dim - j * (j - 1)/2 - j;
 	for (size_t i = j; i < dim; ++i) {
 	    nominator[col_start + i] = tmp[i] * tmp[j];
@@ -192,6 +192,7 @@ inline void decompose_design_matrix(const Eigen::SparseMatrix<double> &design_ma
     std::vector<bool> r_X(svd_rank);
 
     double sv_sum = 0.0;
+#pragma omp parallel for schedule(static) reduction(+:sv_sum)
     for (size_t i = 0; i < svd_rank; ++i) {
 	sv_sum += svd_X_singular_values[i]*svd_X_singular_values[i];
     }
@@ -266,6 +267,7 @@ inline Eigen::MatrixXd decompose_covariance_matrix(const Eigen::MatrixXd &covari
 
     std::vector<bool> r_D(rank);
     size_t num_r_D_set = 0;
+#pragma omp parallel for schedule(static) reduction(+:num_r_D_set)
     for (size_t i = 0; i < rank; ++i) {
 	r_D[i] = svd_singular_values[i] > 1e-10;
 	num_r_D_set += r_D[i];
@@ -384,7 +386,7 @@ inline double dropped_predictor_kld_lowrank(const std::vector<double> &flat_Lamb
     std::vector<double> dot_prods(f_Lambda.rows(), 0.0);
 
 #pragma omp parallel for schedule(guided) reduction(vec_double_plus:dot_prods)
-    for (size_t j = dim - 1; j > 0; --j) {
+    for (int64_t j = dim - 1; j >= 0; --j) {
 	if (j != predictor_id) {
 	    size_t col_start = j * dim - j * (j - 1)/2 - j;
 	    dot_prods[j] += (predictor_col[j] * flat_U_Lambda_sub[col_start + j]) * predictor_col[j];
@@ -458,7 +460,8 @@ inline std::vector<double> flatten_lambda(const Eigen::MatrixXd &Lambda) {
     size_t dim = Lambda.rows();
     std::vector<double> flat_lambda(dim * (dim + 1)/2, 0.0);
 
-    for (size_t j = dim - 1; j > 0; --j) {
+#pragma omp parallel for schedule(guided)
+    for (int64_t j = dim - 1; j >= 0; --j) {
 	size_t col_start = j * dim - j * (j - 1)/2 - j;
 	for (size_t i = j; i < dim; ++i) {
 	    flat_lambda[col_start + i] = Lambda(i, j);
