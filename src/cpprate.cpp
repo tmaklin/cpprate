@@ -51,6 +51,8 @@ void parse_args(int argc, char* argv[], cxxargs::Arguments &args) {
     args.add_short_argument<size_t>('d', "Number of SNPs tested (cols in design matrix");
     args.add_short_argument<size_t>('m', "Number of posterior samples (rows in f-draws)");
     args.add_short_argument<size_t>('t', "Number of threads to use (default: 1)", 1);
+    args.add_long_argument<double>("prop-var", "Proportion of variance to explain in lowrank factorization (default: 100%)", 1.1);
+    args.add_long_argument<size_t>("low-rank", "Rank of the low-rank factorization (default: min(-n, -d))", 0);
     args.add_long_argument<bool>("fullrank", "Run fullrank algorithm (default: false)", false);
     args.add_long_argument<size_t>("lowrank-dim", "Dimension of the lowrank approximation (default: min(n, d))", 0);
     args.add_long_argument<bool>("help", "Print the help message.", false);
@@ -108,9 +110,8 @@ int main(int argc, char* argv[]) {
   if (args.value<bool>("fullrank")) {
       res = RATE_fullrank(f_draws_mat, design_matrix, n_snps);
   } else {
-      const double prop_var = 1.0; // (if prop.var == 1.0 the last component is always ignored)?
-      size_t svd_rank = std::min(n_obs, n_snps);
-      res = RATE_lowrank(f_draws_mat, design_matrix, n_snps, svd_rank, prop_var);
+      size_t svd_rank = args.value<size_t>("low-rank") == 0 ? std::min(n_obs, n_snps) : args.value<size_t>("low-rank");
+      res = RATE_lowrank(f_draws_mat, design_matrix, n_snps, svd_rank, args.value<double>("prop-var"));
   }
 
   std::cout << "#ESS: " << res.ESS << '\n';
