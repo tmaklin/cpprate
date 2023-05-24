@@ -346,13 +346,21 @@ inline double dropped_predictor_kld(const Eigen::MatrixXd &lambda, const Eigen::
 
     for (size_t k = 0; k < U_Lambda_sub.cols(); k++) {
 	if (k != predictor_id) {
+	    double max_element = 0.0;
+	    for (size_t j = 0; j < U_Lambda_sub.rows(); ++j) {
+		if (j != predictor_id) {
+		    max_element = (max_element >= std::log(1e-16 + std::abs(U_Lambda_sub(j, predictor_id))) + std::log(1e-16 + std::abs(U_Lambda_sub(j, k))) ? max_element : std::log(1e-16 + std::abs(U_Lambda_sub(j, predictor_id))) + std::log(1e-16 + std::abs(U_Lambda_sub(j, k))));
+		}
+	    }
+
 	    double tmp_sum = 0.0;
 	    for (size_t j = 0; j < U_Lambda_sub.rows(); ++j) {
 		if (j != predictor_id) {
-		    tmp_sum += U_Lambda_sub(j, predictor_id) * U_Lambda_sub(j, k);
+		    tmp_sum += std::exp(std::log(1e-16 + std::abs(U_Lambda_sub(j, predictor_id))) + std::log(1e-16 + std::abs(U_Lambda_sub(j, k))) - max_element);
 		}
 	    }
-	    alpha += tmp_sum * U_Lambda_sub(k, predictor_id);
+	    tmp_sum = std::log(tmp_sum) + max_element;
+	    alpha += std::exp(tmp_sum + std::log(1e-16 + std::abs(U_Lambda_sub(k, predictor_id))));
 	}
     }
 
