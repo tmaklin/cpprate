@@ -114,57 +114,57 @@ inline Eigen::MatrixXd sherman_r(const Eigen::MatrixXd &ap, const Eigen::VectorX
     return (ap - ( (ap * tmp).array() / (1 + (tmp).array())).matrix());
 }
 
-inline double create_denominator(const Eigen::MatrixXd &t_Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::VectorXd &svd_v_col) {
+inline double create_log_denominator(const Eigen::MatrixXd &log_Lambda_chol, const Eigen::MatrixXd &log_v_Sigma_star, const Eigen::VectorXd &log_svd_v_col) {
     // TODO: tests
     double square_norm = 0.0;
 #pragma omp parallel for schedule(static) reduction(+:square_norm)
-    for (size_t j = 0; j < v_Sigma_star.cols(); ++j) {
-	for (size_t i = 0; i < v_Sigma_star.rows(); ++i) {
-	    double prod = (v_Sigma_star(i, j) * svd_v_col(j)) * t_Lambda_chol(i, j);
-	    square_norm += prod * prod;
+    for (size_t j = 0; j < log_v_Sigma_star.cols(); ++j) {
+	for (size_t i = 0; i < log_v_Sigma_star.rows(); ++i) {
+	    double log_prod = log_v_Sigma_star(i, j) + log_svd_v_col(j) + log_Lambda_chol(i, j);
+	    square_norm += std::exp(log_prod + log_prod);
 	}
     }
 
-    return square_norm + 1.0;
+    return std::log1p(square_norm);
 }
 
-inline std::vector<double> create_nominator(const Eigen::MatrixXd &f_Lambda, const Eigen::VectorXd &svd_v_col) {
+inline std::vector<double> create_log_nominator(const Eigen::MatrixXd &log_f_Lambda, const Eigen::VectorXd &log_svd_v_col) {
     // TODO: tests
-    size_t dim = f_Lambda.rows();
+    size_t dim = log_f_Lambda.rows();
     std::vector<double> tmp(dim, 0.0);
 
 #pragma omp parallel for schedule(static) reduction(vec_double_plus:tmp)
-    for (size_t j = 0; j < f_Lambda.cols(); ++j) {
+    for (size_t j = 0; j < log_f_Lambda.cols(); ++j) {
 	for (size_t i = 0; i < dim; ++i) {
-	    tmp[i] += f_Lambda(i, j) * svd_v_col(j);
+	    tmp[i] += std::exp(log_f_Lambda(i, j) + log_svd_v_col(j));
 	}
     }
 
-    std::vector<double> nominator(dim * (dim + 1)/2, 0.0);
+    std::vector<double> log_nominator(dim * (dim + 1)/2, 0.0);
 
 #pragma omp parallel for schedule(guided) // Last chunks are very small so "reverse guided" works ok
     for (int64_t j = dim - 1; j >= 0; --j) {
 	size_t col_start = j * dim - j * (j - 1)/2 - j;
 	for (size_t i = j; i < dim; ++i) {
-	    nominator[col_start + i] = tmp[i] * tmp[j];
+	    log_nominator[col_start + i] = std::log(tmp[i]) + std::log(tmp[j]);
 	}
     }
 
-    return nominator;
+    return log_nominator;
 }
 
-inline std::vector<double> sherman_r_lowrank(const std::vector<double> &flat_Lambda, const Eigen::MatrixXd &f_Lambda, const Eigen::MatrixXd &Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::VectorXd &svd_v_col) {
+inline std::vector<double> sherman_r_lowrank(const std::vector<double> &flat_Lambda, const Eigen::MatrixXd &log_f_Lambda, const Eigen::MatrixXd &log_Lambda_chol, const Eigen::MatrixXd &log_v_Sigma_star, const Eigen::VectorXd &log_svd_v_col) {
     // TODO: tests
-    const double denominator = create_denominator(Lambda_chol, v_Sigma_star, svd_v_col);
-    std::vector<double> nominator = create_nominator(f_Lambda, svd_v_col);
+    const double log_denominator = create_log_denominator(log_Lambda_chol, log_v_Sigma_star, log_svd_v_col);
+    std::vector<double> log_nominator = create_log_nominator(log_f_Lambda, log_svd_v_col);
 
-    size_t dim = f_Lambda.rows() * (f_Lambda.rows() + 1)/2;
+    size_t dim = log_f_Lambda.rows() * (log_f_Lambda.rows() + 1)/2;
 #pragma omp parallel for schedule(static)
     for (size_t i = 0; i < dim; ++i) {
-	nominator[i] = flat_Lambda[i] - (nominator[i]/denominator);
+	log_nominator[i] = std::log(std::abs(flat_Lambda[i] - std::exp(log_nominator[i] - log_denominator)));
     }
 
-    return nominator;
+    return log_nominator;
 }
 
 template <typename T>
@@ -385,22 +385,22 @@ inline std::vector<double> get_col(const std::vector<double> &flat, const size_t
     return res;
 }
 
-inline double dropped_predictor_kld_lowrank(const std::vector<double> &flat_Lambda, const Eigen::MatrixXd &f_Lambda, const Eigen::MatrixXd &Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::VectorXd &svd_v_col, const double mean_beta, const size_t predictor_id) {
+inline double dropped_predictor_kld_lowrank(const std::vector<double> &flat_Lambda, const Eigen::MatrixXd &log_f_Lambda, const Eigen::MatrixXd &log_Lambda_chol, const Eigen::MatrixXd &log_v_Sigma_star, const Eigen::VectorXd &log_svd_v_col, const double mean_beta, const size_t predictor_id) {
     // TODO: tests
-    const std::vector<double> &flat_U_Lambda_sub = sherman_r_lowrank(flat_Lambda, f_Lambda, Lambda_chol, v_Sigma_star, svd_v_col);
+    const std::vector<double> &log_flat_U_Lambda_sub = sherman_r_lowrank(flat_Lambda, log_f_Lambda, log_Lambda_chol, log_v_Sigma_star, log_svd_v_col);
 
-    size_t dim = f_Lambda.rows();
-    const std::vector<double> &predictor_col = get_col(flat_U_Lambda_sub, dim, dim, predictor_id);
+    size_t dim = log_f_Lambda.rows();
+    const std::vector<double> &log_predictor_col = get_col(log_flat_U_Lambda_sub, dim, dim, predictor_id);
     double alpha = 0.0;
 
 #pragma omp parallel for schedule(guided) reduction(+:alpha)
     for (int64_t j = dim - 1; j >= 0; --j) {
 	if (j != predictor_id) {
 	    size_t col_start = j * dim - j * (j - 1)/2 - j;
-	    alpha += (predictor_col[j] * flat_U_Lambda_sub[col_start + j]) * predictor_col[j];
+	    alpha += std::exp(log_predictor_col[j] + log_flat_U_Lambda_sub[col_start + j] + log_predictor_col[j]);
 	    for (size_t i = (j + 1); i < dim; ++i) {
 		if (i != predictor_id) {
-		    double res = (predictor_col[i] * flat_U_Lambda_sub[col_start + i]) * predictor_col[j];
+		    double res = std::exp(log_predictor_col[i] + log_flat_U_Lambda_sub[col_start + i] + log_predictor_col[j]);
 		    alpha += res;
 		    alpha += res;
 		}
@@ -486,7 +486,7 @@ inline RATEd RATE_lowrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMat
     decompose_design_matrix(design_matrix, svd_rank, prop_var, &u, &svd_design_matrix_v);
 
     const Eigen::VectorXd &col_means_beta = approximate_beta_means(f_draws, u, svd_design_matrix_v);
-    const Eigen::MatrixXd &v_Sigma_star = svd_design_matrix_v*project_f_draws(f_draws, u).triangularView<Eigen::Lower>();
+    Eigen::MatrixXd v_Sigma_star = svd_design_matrix_v*project_f_draws(f_draws, u).triangularView<Eigen::Lower>();
     Eigen::MatrixXd Lambda_chol = decompose_covariance_approximation(project_f_draws(f_draws, u), svd_design_matrix_v, svd_rank);
 
     Eigen::MatrixXd Lambda_f;
@@ -505,6 +505,19 @@ inline RATEd RATE_lowrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMat
 
     svd_design_matrix_v.transposeInPlace();
 
+    // Only the logspace values are needed
+    svd_design_matrix_v.noalias() = svd_design_matrix_v.cwiseAbs();
+    svd_design_matrix_v.noalias() = svd_design_matrix_v.array().log().matrix();
+
+    v_Sigma_star.noalias() = v_Sigma_star.cwiseAbs();
+    v_Sigma_star.noalias() = v_Sigma_star.array().log().matrix();
+
+    Lambda_chol.noalias() = Lambda_chol.cwiseAbs();
+    Lambda_chol.noalias() = Lambda_chol.array().log().matrix();
+
+    Lambda_f.noalias() = Lambda_f.cwiseAbs();
+    Lambda_f.noalias() = Lambda_f.array().log().matrix();
+
     std::vector<double> log_KLD(n_snps);
 
 #pragma omp parallel for schedule(static)
@@ -519,6 +532,23 @@ inline RATEd RATE_fullrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMa
     // ## WARNING: Do not compile with -ffast-math
 
     Eigen::MatrixXd beta_draws = std::move(nonlinear_coefficients(design_matrix, f_draws));
+
+    const Eigen::MatrixXd &cov_beta = covariance_matrix(beta_draws);
+    const Eigen::VectorXd &col_means_beta = col_means(beta_draws);
+    const Eigen::MatrixXd &Lambda = create_lambda(decompose_covariance_matrix(cov_beta));
+
+    std::vector<double> log_KLD(n_snps);
+
+#pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < n_snps; ++i) {
+	log_KLD[i] = dropped_predictor_kld(Lambda, cov_beta.col(i), col_means_beta[i], i);
+    }
+
+    return RATEd(log_KLD);
+}
+
+inline RATEd RATE_beta_draws(const Eigen::MatrixXd &beta_draws, const size_t n_snps) {
+    // ## WARNING: Do not compile with -ffast-math
 
     const Eigen::MatrixXd &cov_beta = covariance_matrix(beta_draws);
     const Eigen::VectorXd &col_means_beta = col_means(beta_draws);

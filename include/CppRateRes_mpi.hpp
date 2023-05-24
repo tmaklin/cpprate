@@ -77,6 +77,19 @@ inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<doub
 
 	Lambda_chol.transposeInPlace();
 	svd_design_matrix_v.transposeInPlace();
+
+	// Only the logspace values are needed
+	svd_design_matrix_v.noalias() = svd_design_matrix_v.cwiseAbs();
+	svd_design_matrix_v.noalias() = svd_design_matrix_v.array().log().matrix();
+
+	v_Sigma_star.noalias() = v_Sigma_star.cwiseAbs();
+	v_Sigma_star.noalias() = v_Sigma_star.array().log().matrix();
+
+	Lambda_chol.noalias() = Lambda_chol.cwiseAbs();
+	Lambda_chol.noalias() = Lambda_chol.array().log().matrix();
+
+	Lambda_f.noalias() = Lambda_f.cwiseAbs();
+	Lambda_f.noalias() = Lambda_f.array().log().matrix();
     }
     f_draws.resize(0, 0);
     design_matrix.resize(0, 0);
