@@ -36,7 +36,7 @@
 
 #include <cmath>
 
-#include "CppRateRes.hpp"
+#include "fullrank.hpp"
 
 TEST_F(KldTest, sherman_r) {
     const Eigen::MatrixXd &sherman_r_got = sherman_r(lambda_fullrank, cov_fullrank.col(1));

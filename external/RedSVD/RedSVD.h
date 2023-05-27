@@ -26,8 +26,7 @@
 #ifndef REDSVD_MODULE_H
 #define REDSVD_MODULE_H
 
-// TODO check if these were found
-#define EIGEN_USE_BLAS
+#include "blas_config.hpp"
 
 #include <Eigen/Sparse>
 #include <Eigen/Dense>
@@ -155,7 +154,7 @@ namespace RedSVD
 			// Range(C) = Range(B)
 			DenseMatrix C = Z.transpose() * B;
 
-			Eigen::BDCSVD<DenseMatrix> svdOfC(C, Eigen::ComputeThinU | Eigen::ComputeThinV);
+			Eigen::BDCSVD<DenseMatrix, Eigen::ComputeThinU | Eigen::ComputeThinV> svdOfC(C);
 
 			// C = USV^T
 			// A = Z * U * S * V^T * Y^T()

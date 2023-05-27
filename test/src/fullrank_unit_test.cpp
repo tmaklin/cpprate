@@ -38,7 +38,8 @@
 
 #include <Eigen/Dense>
 
-#include "CppRateRes.hpp"
+#include "util.hpp"
+#include "fullrank.hpp"
 
 TEST_F(FullrankTest, nonlinear_coefficients) {
     const Eigen::MatrixXd &beta_draws_got = nonlinear_coefficients(this->sparse_design_matrix, this->f_draws);

@@ -36,7 +36,8 @@
 
 #include <cmath>
 
-#include "CppRateRes.hpp"
+#include "util.hpp"
+#include "lowrank.hpp"
 
 // Test cpprate
 TEST_F(DesignMatrixTest, vec_to_sparse_matrix) {

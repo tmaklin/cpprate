@@ -38,7 +38,7 @@
 
 #include <Eigen/Dense>
 
-#include "CppRateRes.hpp"
+#include "svd_wrapper.hpp"
 
 TEST_F(SvdTest, svd_factor_u) {
     Eigen::MatrixXd svd_u_got;

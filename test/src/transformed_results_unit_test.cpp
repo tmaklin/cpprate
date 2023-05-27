@@ -36,7 +36,7 @@
 
 #include <cmath>
 
-#include "CppRateRes.hpp"
+#include "RATE_res.hpp"
 
 TEST_F(TransformedResultsTest, RATE) {
     const std::vector<double> &RATE_got = rate_from_kld(this->KLD, this->KLD_sum);

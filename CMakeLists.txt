@@ -56,6 +56,8 @@ else()
 endif()
 ## Configure MPI if it's supported on the system.
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config/cpprate_mpi_config.hpp.in ${CMAKE_CURRENT_BINARY_DIR}/include/cpprate_mpi_config.hpp @ONLY)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config/cpprate_openmp_config.hpp.in ${CMAKE_CURRENT_BINARY_DIR}/include/cpprate_openmp_config.hpp @ONLY)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config/cpprate_blas_config.hpp.in ${CMAKE_CURRENT_BINARY_DIR}/include/cpprate_blas_config.hpp @ONLY)
 
 ## eigen
 if (DEFINED CMAKE_EIGEN_HEADERS)

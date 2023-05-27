@@ -37,8 +37,11 @@
 #include <fstream>
 #include <string>
 #include <cstddef>
+#include <iostream>
 
-#include "CppRateRes.hpp"
+#include "lowrank.hpp"
+#include "fullrank.hpp"
+#include "util.hpp"
 
 bool CmdOptionPresent(char **begin, char **end, const std::string &option) {
   return (std::find(begin, end, option) != end);

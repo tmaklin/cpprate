@@ -32,35 +32,23 @@
 // IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 //
-#include "lowrank_integration_test.hpp"
+#ifndef CPPRATE_SVD_WRAPPER_HPP
+#define CPPRATE_SVD_WRAPPER_HPP
 
-#include "lowrank.hpp"
+#include <cstddef>
 
-// Test lowrank ESS
-TEST_F(LowrankIntegrationTest, EssIsCorrect) {
-    RATEd res = RATE_lowrank(this->f_draws, this->design_matrix, this->n_design_dim, this->rank_r, this->prop_var);
-    EXPECT_NEAR(res.ESS, this->expected_lr_ESS, 1e-5);
+#include "cpprate_blas_config.hpp"
+
+#include "RedSVD.h"
+#include <Eigen/Dense>
+
+template <typename T>
+inline void svd(const T &design_matrix, const size_t svd_rank,
+		Eigen::MatrixXd *u, Eigen::MatrixXd *v, Eigen::VectorXd *d) {
+    RedSVD::RedSVD<T> mat(design_matrix, svd_rank);
+    (*u) = std::move(mat.matrixU());
+    (*v) = std::move(mat.matrixV());
+    (*d) = std::move(mat.singularValues());
 }
 
-// Test lowrank Delta
-TEST_F(LowrankIntegrationTest, DeltaIsCorrect) {
-    RATEd res = RATE_lowrank(this->f_draws, this->design_matrix, this->n_design_dim, this->rank_r, this->prop_var);
-    EXPECT_NEAR(res.Delta, this->expected_lr_Delta, 1e-6);
-}
-
-// Test lowrank RATE
-TEST_F(LowrankIntegrationTest, RateIsCorrect) {
-    RATEd res = RATE_lowrank(this->f_draws, this->design_matrix, this->n_design_dim, this->rank_r, this->prop_var);
-    for (size_t i = 0; i < n_design_dim; ++i) {
-	EXPECT_NEAR(res.RATE[i], this->expected_lr_RATE[i], 1e-6);
-    }
-
-}
-
-// Test lowrank KLD
-TEST_F(LowrankIntegrationTest, KldIsCorrect) {
-    RATEd res = RATE_lowrank(this->f_draws, this->design_matrix, this->n_design_dim, this->rank_r, this->prop_var);
-    for (size_t i = 0; i < n_design_dim; ++i) {
-	EXPECT_NEAR(res.KLD[i], this->expected_lr_KLD[i], 1e-5);
-    }
-}
+#endif

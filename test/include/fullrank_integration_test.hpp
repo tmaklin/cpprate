@@ -44,7 +44,7 @@
 
 #include "gtest/gtest.h"
 
-#include "CppRateRes.hpp"
+#include "util.hpp"
 
 class FullrankIntegrationTest : public ::testing::Test {
   protected:

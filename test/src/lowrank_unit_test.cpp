@@ -36,7 +36,8 @@
 
 #include <cmath>
 
-#include "CppRateRes.hpp"
+#include "util.hpp"
+#include "lowrank.hpp"
 
 TEST_F(LowrankTest, covariance_matrix) {
     const Eigen::MatrixXd &cov_got = covariance_matrix(this->f_draws);

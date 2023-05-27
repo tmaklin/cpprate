@@ -32,35 +32,49 @@
 // IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 //
-#include "lowrank_integration_test.hpp"
+#ifndef CPPRATE_CPPRATERES_HPP
+#define CPPRATE_CPPRATERES_HPP
 
-#include "lowrank.hpp"
+#include <vector>
+#include <cstddef>
 
-// Test lowrank ESS
-TEST_F(LowrankIntegrationTest, EssIsCorrect) {
-    RATEd res = RATE_lowrank(this->f_draws, this->design_matrix, this->n_design_dim, this->rank_r, this->prop_var);
-    EXPECT_NEAR(res.ESS, this->expected_lr_ESS, 1e-5);
-}
+#include "cpprate_openmp_config.hpp"
+#include "cpprate_blas_config.hpp"
 
-// Test lowrank Delta
-TEST_F(LowrankIntegrationTest, DeltaIsCorrect) {
-    RATEd res = RATE_lowrank(this->f_draws, this->design_matrix, this->n_design_dim, this->rank_r, this->prop_var);
-    EXPECT_NEAR(res.Delta, this->expected_lr_Delta, 1e-6);
-}
+#include <Eigen/Dense>
 
-// Test lowrank RATE
-TEST_F(LowrankIntegrationTest, RateIsCorrect) {
-    RATEd res = RATE_lowrank(this->f_draws, this->design_matrix, this->n_design_dim, this->rank_r, this->prop_var);
-    for (size_t i = 0; i < n_design_dim; ++i) {
-	EXPECT_NEAR(res.RATE[i], this->expected_lr_RATE[i], 1e-6);
+inline std::vector<double> get_col(const std::vector<double> &flat, const size_t n_rows, const size_t n_cols, const size_t col_id) {
+    std::vector<double> res(n_rows);
+
+#pragma omp parallel for schedule(static)
+    for (size_t i = col_id; i < n_cols; ++i) {
+	size_t pos_in_lower_tri = col_id * n_rows + i - col_id * (col_id - 1)/2 - col_id;
+	res[i] = flat[pos_in_lower_tri];
     }
 
+#pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < col_id; ++i) {
+	size_t pos_in_lower_tri = i * n_rows + col_id - i * (i - 1)/2 - i;
+	res[i] = flat[pos_in_lower_tri];
+    }
+
+    return res;
 }
 
-// Test lowrank KLD
-TEST_F(LowrankIntegrationTest, KldIsCorrect) {
-    RATEd res = RATE_lowrank(this->f_draws, this->design_matrix, this->n_design_dim, this->rank_r, this->prop_var);
-    for (size_t i = 0; i < n_design_dim; ++i) {
-	EXPECT_NEAR(res.KLD[i], this->expected_lr_KLD[i], 1e-5);
+inline std::vector<double> flatten_lambda(const Eigen::MatrixXd &Lambda) {
+    // TODO tests
+    size_t dim = Lambda.rows();
+    std::vector<double> flat_lambda(dim * (dim + 1)/2, 0.0);
+
+#pragma omp parallel for schedule(guided)
+    for (int64_t j = dim - 1; j >= 0; --j) {
+	size_t col_start = j * dim - j * (j - 1)/2 - j;
+	for (size_t i = j; i < dim; ++i) {
+	    flat_lambda[col_start + i] = Lambda(i, j);
+	}
     }
+
+    return flat_lambda;
 }
+
+#endif
