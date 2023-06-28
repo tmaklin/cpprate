@@ -368,35 +368,33 @@ inline Eigen::MatrixXd create_lambda(const Eigen::MatrixXd &U) {
     return tmp;
 }
 
+inline double get_alpha(const std::vector<double> &U_Lambda_sub_flat, const size_t dim, const size_t predictor_id) {
+    // TODO tests
+    double alpha = 0.0;
+    const std::vector<double> &predictor_col = get_col(U_Lambda_sub_flat, dim, dim, predictor_id);
+#pragma omp parallel for schedule(guided) reduction(+:alpha)
+    for (int64_t j = dim - 1; j >= 0; --j) {
+	if (j != predictor_id) {
+	    size_t col_start = j * dim - j * (j - 1)/2 - j;
+	    alpha += (predictor_col[j] * U_Lambda_sub_flat[col_start + j]) * predictor_col[j];
+	    for (size_t i = (j + 1); i < dim; ++i) {
+		if (i != predictor_id) {
+		    double res = (predictor_col[i] * U_Lambda_sub_flat[col_start + i]) * predictor_col[j];
+		    alpha += res;
+		    alpha += res;
+		}
+	    }
+	}
+    }
+    return alpha;
+}
+
 inline double dropped_predictor_kld(const std::vector<double> &flat_lambda, const std::vector<double> &cov_beta_col, const double mean_beta, const size_t predictor_id) {
     double log_m = std::log(std::abs(mean_beta));
     const std::vector<double> &U_Lambda_sub_flat = sherman_r(flat_lambda, cov_beta_col);
 
-    double alpha = 0.0;
-
     size_t dim = cov_beta_col.size();
-    const std::vector<double> &predictor_col = get_col(U_Lambda_sub_flat, dim, dim, predictor_id);
-
-    for (size_t k = 0; k < dim; k++) {
-	if (k != predictor_id) {
-	    const std::vector<double> &U_col = get_col(U_Lambda_sub_flat, dim, dim, k);
-	    double max_element = 0.0;
-	    for (size_t j = 0; j < dim; ++j) {
-		if (j != predictor_id) {
-		    max_element = (max_element >= std::log(1e-16 + std::abs(predictor_col[j])) + std::log(1e-16 + std::abs(U_col[j])) ? max_element : std::log(1e-16 + std::abs(predictor_col[j])) + std::log(1e-16 + std::abs(U_col[j])));
-		}
-	    }
-
-	    double tmp_sum = 0.0;
-	    for (size_t j = 0; j < dim; ++j) {
-		if (j != predictor_id) {
-		    tmp_sum += std::exp(std::log(1e-16 + std::abs(predictor_col[j])) + std::log(1e-16 + std::abs(U_col[j])) - max_element);
-		}
-	    }
-	    tmp_sum = std::log(tmp_sum) + max_element;
-	    alpha += std::exp(tmp_sum + std::log(1e-16 + std::abs(predictor_col[k])));
-	}
-    }
+    const double alpha = get_alpha(U_Lambda_sub_flat, dim, predictor_id);
 
     return std::log(0.5) + log_m + std::log(alpha) + log_m;
 }
@@ -406,23 +404,7 @@ inline double dropped_predictor_kld_lowrank(const std::vector<double> &flat_Lamb
     const std::vector<double> &flat_U_Lambda_sub = sherman_r_lowrank(flat_Lambda, f_Lambda, Lambda_chol, v_Sigma_star, svd_v_col);
 
     size_t dim = f_Lambda.rows();
-    const std::vector<double> &predictor_col = get_col(flat_U_Lambda_sub, dim, dim, predictor_id);
-    double alpha = 0.0;
-
-#pragma omp parallel for schedule(guided) reduction(+:alpha)
-    for (int64_t j = dim - 1; j >= 0; --j) {
-	if (j != predictor_id) {
-	    size_t col_start = j * dim - j * (j - 1)/2 - j;
-	    alpha += (predictor_col[j] * flat_U_Lambda_sub[col_start + j]) * predictor_col[j];
-	    for (size_t i = (j + 1); i < dim; ++i) {
-		if (i != predictor_id) {
-		    double res = (predictor_col[i] * flat_U_Lambda_sub[col_start + i]) * predictor_col[j];
-		    alpha += res;
-		    alpha += res;
-		}
-	    }
-	}
-    }
+    const double alpha = get_alpha(flat_U_Lambda_sub, dim, predictor_id);
 
     double log_m = std::log(std::abs(mean_beta));
     return std::log(0.5) + log_m + std::log(alpha) + log_m;
