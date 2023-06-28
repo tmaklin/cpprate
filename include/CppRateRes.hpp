@@ -462,20 +462,26 @@ Eigen::SparseMatrix<T> vec_to_sparse_matrix(const std::vector<V> &vec, const siz
     return mat;
 }
 
-inline std::vector<double> flatten_lambda(const Eigen::MatrixXd &Lambda) {
+inline std::vector<double> flatten_triangular(const Eigen::MatrixXd &triangular) {
     // TODO tests
-    size_t dim = Lambda.rows();
-    std::vector<double> flat_lambda(dim * (dim + 1)/2, 0.0);
+    // Flatten a lower triangular matrix `triangular`
+    // Note: assumes that `triangular` is rectangular.
+    // Returns:
+    //   flattened: vector containing values at or below the diagonal
+    //              from `triangular` column-wise from left to right.
+    //
+    size_t dim = triangular.rows();
+    std::vector<double> flattened(dim * (dim + 1)/2, 0.0);
 
 #pragma omp parallel for schedule(guided)
     for (int64_t j = dim - 1; j >= 0; --j) {
 	size_t col_start = j * dim - j * (j - 1)/2 - j;
 	for (size_t i = j; i < dim; ++i) {
-	    flat_lambda[col_start + i] = Lambda(i, j);
+	    flattened[col_start + i] = triangular(i, j);
 	}
     }
 
-    return flat_lambda;
+    return flattened;
 }
 
 inline RATEd RATE_lowrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMatrix<double> &design_matrix, const size_t n_snps, const size_t svd_rank, const double prop_var) {
@@ -496,7 +502,7 @@ inline RATEd RATE_lowrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMat
 	Eigen::MatrixXd Lambda = Eigen::MatrixXd::Zero(n_snps, n_snps);
 	Lambda.template selfadjointView<Eigen::Lower>().rankUpdate(Lambda_chol);
 	Lambda_f = Lambda.triangularView<Eigen::Lower>() * v_Sigma_star;
-	flat_Lambda = flatten_lambda(Lambda);
+	flat_Lambda = flatten_triangular(Lambda);
     }
 
     Lambda_chol.transposeInPlace();
