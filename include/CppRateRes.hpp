@@ -109,18 +109,42 @@ public:
     }
 };
 
-inline Eigen::MatrixXd sherman_r(const Eigen::MatrixXd &ap, const std::vector<double> &u) {
-    size_t dim = ap.rows();
+inline std::vector<double> get_col(const std::vector<double> &flat, const size_t n_rows, const size_t n_cols, const size_t col_id) {
+    std::vector<double> res(n_rows);
+
+#pragma omp parallel for schedule(static)
+    for (size_t i = col_id; i < n_cols; ++i) {
+	size_t pos_in_lower_tri = col_id * n_rows + i - col_id * (col_id - 1)/2 - col_id;
+	res[i] = flat[pos_in_lower_tri];
+    }
+
+#pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < col_id; ++i) {
+	size_t pos_in_lower_tri = i * n_rows + col_id - i * (i - 1)/2 - i;
+	res[i] = flat[pos_in_lower_tri];
+    }
+
+    return res;
+}
+
+inline Eigen::MatrixXd sherman_r(const std::vector<double> &flat_lambda, const std::vector<double> &u) {
+    size_t dim = u.size();
     Eigen::MatrixXd tmp(dim, dim);
 #pragma omp parallel for schedule(static)
     for (size_t j = 0; j < dim; ++j) {
+	const std::vector<double> &lambda_col = get_col(flat_lambda, dim, dim, j);
 	for (size_t i = j + 1; i < dim; ++i) {
-	    tmp(i, j) = u[i] * u[j] * ap(i, j);
+	    tmp(i, j) = u[i] * u[j] * lambda_col[i];
+	}
+	tmp(j, j) = u[j] * u[j] * lambda_col[j];
+
+	for (size_t i = j; i < dim; ++i) {
+	    tmp(i, j) = lambda_col[i] - (lambda_col[i] * tmp(i, j))/(1 + tmp(i, j));
 	    tmp(j, i) = tmp(i, j);
 	}
-	tmp(j, j) = u[j] * u[j] * ap(j, j);
     }
-    return (ap - ( (ap * tmp).array() / (1 + (tmp).array())).matrix());
+
+    return tmp;
 }
 
 inline double create_denominator(const Eigen::MatrixXd &t_Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::VectorXd &svd_v_col) {
@@ -347,9 +371,9 @@ inline Eigen::MatrixXd create_lambda(const Eigen::MatrixXd &U) {
     return tmp;
 }
 
-inline double dropped_predictor_kld(const Eigen::MatrixXd &lambda, const std::vector<double> &cov_beta_col, const double mean_beta, const size_t predictor_id) {
+inline double dropped_predictor_kld(const std::vector<double> &flat_lambda, const std::vector<double> &cov_beta_col, const double mean_beta, const size_t predictor_id) {
     double log_m = std::log(std::abs(mean_beta));
-    const Eigen::MatrixXd &U_Lambda_sub = sherman_r(lambda, cov_beta_col);
+    const Eigen::MatrixXd &U_Lambda_sub = sherman_r(flat_lambda, cov_beta_col);
 
     double alpha = 0.0;
 
@@ -374,24 +398,6 @@ inline double dropped_predictor_kld(const Eigen::MatrixXd &lambda, const std::ve
     }
 
     return std::log(0.5) + log_m + std::log(alpha) + log_m;
-}
-
-inline std::vector<double> get_col(const std::vector<double> &flat, const size_t n_rows, const size_t n_cols, const size_t col_id) {
-    std::vector<double> res(n_rows);
-
-#pragma omp parallel for schedule(static)
-    for (size_t i = col_id; i < n_cols; ++i) {
-	size_t pos_in_lower_tri = col_id * n_rows + i - col_id * (col_id - 1)/2 - col_id;
-	res[i] = flat[pos_in_lower_tri];
-    }
-
-#pragma omp parallel for schedule(static)
-    for (size_t i = 0; i < col_id; ++i) {
-	size_t pos_in_lower_tri = i * n_rows + col_id - i * (i - 1)/2 - i;
-	res[i] = flat[pos_in_lower_tri];
-    }
-
-    return res;
 }
 
 inline double dropped_predictor_kld_lowrank(const std::vector<double> &flat_Lambda, const Eigen::MatrixXd &f_Lambda, const Eigen::MatrixXd &Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::VectorXd &svd_v_col, const double mean_beta, const size_t predictor_id) {
@@ -533,7 +539,7 @@ inline RATEd RATE_lowrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMat
 inline RATEd RATE_fullrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMatrix<double> &design_matrix, const size_t n_snps) {
     // ## WARNING: Do not compile with -ffast-math
 
-    Eigen::MatrixXd Lambda;
+    std::vector<double> flat_lambda;
     Eigen::VectorXd col_means_beta;
     std::vector<double> flat_cov_beta;
     size_t dim;
@@ -544,7 +550,7 @@ inline RATEd RATE_fullrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMa
 	const Eigen::MatrixXd &cov_beta = covariance_matrix(beta_draws);
 	dim = cov_beta.rows();
 	beta_draws.resize(0, 0);
-	Lambda = create_lambda(decompose_covariance_matrix(cov_beta));
+	flat_lambda = flatten_triangular(create_lambda(decompose_covariance_matrix(cov_beta)));
 	flat_cov_beta = flatten_triangular(cov_beta);
     }
 
@@ -553,7 +559,7 @@ inline RATEd RATE_fullrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMa
 #pragma omp parallel for schedule(static)
     for (size_t i = 0; i < n_snps; ++i) {
 	const std::vector<double> &cov_beta_col = get_col(flat_cov_beta, dim, dim, i);
-	log_KLD[i] = dropped_predictor_kld(Lambda, cov_beta_col, col_means_beta[i], i);
+	log_KLD[i] = dropped_predictor_kld(flat_lambda, cov_beta_col, col_means_beta[i], i);
     }
 
     return RATEd(log_KLD);
@@ -562,7 +568,7 @@ inline RATEd RATE_fullrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMa
 inline RATEd RATE_beta_draws(const Eigen::MatrixXd &beta_draws, const size_t n_snps) {
     // ## WARNING: Do not compile with -ffast-math
 
-    Eigen::MatrixXd Lambda;
+    std::vector<double> flat_lambda;
     Eigen::VectorXd col_means_beta;
     std::vector<double> flat_cov_beta;
     size_t dim;
@@ -571,7 +577,7 @@ inline RATEd RATE_beta_draws(const Eigen::MatrixXd &beta_draws, const size_t n_s
 	col_means_beta = col_means(beta_draws);
 	const Eigen::MatrixXd &cov_beta = covariance_matrix(beta_draws);
 	dim = cov_beta.rows();
-	Lambda = create_lambda(decompose_covariance_matrix(cov_beta));
+	flat_lambda = flatten_triangular(create_lambda(decompose_covariance_matrix(cov_beta)));
 	flat_cov_beta = flatten_triangular(cov_beta);
     }
 
@@ -580,7 +586,7 @@ inline RATEd RATE_beta_draws(const Eigen::MatrixXd &beta_draws, const size_t n_s
 #pragma omp parallel for schedule(static)
     for (size_t i = 0; i < n_snps; ++i) {
 	const std::vector<double> &cov_beta_col = get_col(flat_cov_beta, dim, dim, i);
-	log_KLD[i] = dropped_predictor_kld(Lambda, cov_beta_col, col_means_beta[i], i);
+	log_KLD[i] = dropped_predictor_kld(flat_lambda, cov_beta_col, col_means_beta[i], i);
     }
 
     return RATEd(log_KLD);
