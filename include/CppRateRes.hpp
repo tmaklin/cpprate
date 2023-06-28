@@ -109,8 +109,17 @@ public:
     }
 };
 
-inline Eigen::MatrixXd sherman_r(const Eigen::MatrixXd &ap, const Eigen::VectorXd &u) {
-    const Eigen::MatrixXd &tmp = u * u.transpose() * ap;
+inline Eigen::MatrixXd sherman_r(const Eigen::MatrixXd &ap, const std::vector<double> &u) {
+    size_t dim = ap.rows();
+    Eigen::MatrixXd tmp(dim, dim);
+#pragma omp parallel for schedule(static)
+    for (size_t j = 0; j < dim; ++j) {
+	for (size_t i = j + 1; i < dim; ++i) {
+	    tmp(i, j) = u[i] * u[j] * ap(i, j);
+	    tmp(j, i) = tmp(i, j);
+	}
+	tmp(j, j) = u[j] * u[j] * ap(j, j);
+    }
     return (ap - ( (ap * tmp).array() / (1 + (tmp).array())).matrix());
 }
 
@@ -338,7 +347,7 @@ inline Eigen::MatrixXd create_lambda(const Eigen::MatrixXd &U) {
     return tmp;
 }
 
-inline double dropped_predictor_kld(const Eigen::MatrixXd &lambda, const Eigen::VectorXd &cov_beta_col, const double mean_beta, const size_t predictor_id) {
+inline double dropped_predictor_kld(const Eigen::MatrixXd &lambda, const std::vector<double> &cov_beta_col, const double mean_beta, const size_t predictor_id) {
     double log_m = std::log(std::abs(mean_beta));
     const Eigen::MatrixXd &U_Lambda_sub = sherman_r(lambda, cov_beta_col);
 
@@ -524,17 +533,27 @@ inline RATEd RATE_lowrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMat
 inline RATEd RATE_fullrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMatrix<double> &design_matrix, const size_t n_snps) {
     // ## WARNING: Do not compile with -ffast-math
 
-    Eigen::MatrixXd beta_draws = std::move(nonlinear_coefficients(design_matrix, f_draws));
+    Eigen::MatrixXd Lambda;
+    Eigen::VectorXd col_means_beta;
+    std::vector<double> flat_cov_beta;
+    size_t dim;
 
-    const Eigen::MatrixXd &cov_beta = covariance_matrix(beta_draws);
-    const Eigen::VectorXd &col_means_beta = col_means(beta_draws);
-    const Eigen::MatrixXd &Lambda = create_lambda(decompose_covariance_matrix(cov_beta));
+    {
+	Eigen::MatrixXd beta_draws = std::move(nonlinear_coefficients(design_matrix, f_draws));
+	col_means_beta = col_means(beta_draws);
+	const Eigen::MatrixXd &cov_beta = covariance_matrix(beta_draws);
+	dim = cov_beta.rows();
+	beta_draws.resize(0, 0);
+	Lambda = create_lambda(decompose_covariance_matrix(cov_beta));
+	flat_cov_beta = flatten_triangular(cov_beta);
+    }
 
     std::vector<double> log_KLD(n_snps);
 
 #pragma omp parallel for schedule(static)
     for (size_t i = 0; i < n_snps; ++i) {
-	log_KLD[i] = dropped_predictor_kld(Lambda, cov_beta.col(i), col_means_beta[i], i);
+	const std::vector<double> &cov_beta_col = get_col(flat_cov_beta, dim, dim, i);
+	log_KLD[i] = dropped_predictor_kld(Lambda, cov_beta_col, col_means_beta[i], i);
     }
 
     return RATEd(log_KLD);
