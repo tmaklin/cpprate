@@ -559,4 +559,31 @@ inline RATEd RATE_fullrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMa
     return RATEd(log_KLD);
 }
 
+inline RATEd RATE_beta_draws(const Eigen::MatrixXd &beta_draws, const size_t n_snps) {
+    // ## WARNING: Do not compile with -ffast-math
+
+    Eigen::MatrixXd Lambda;
+    Eigen::VectorXd col_means_beta;
+    std::vector<double> flat_cov_beta;
+    size_t dim;
+
+    {
+	col_means_beta = col_means(beta_draws);
+	const Eigen::MatrixXd &cov_beta = covariance_matrix(beta_draws);
+	dim = cov_beta.rows();
+	Lambda = create_lambda(decompose_covariance_matrix(cov_beta));
+	flat_cov_beta = flatten_triangular(cov_beta);
+    }
+
+    std::vector<double> log_KLD(n_snps);
+
+#pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < n_snps; ++i) {
+	const std::vector<double> &cov_beta_col = get_col(flat_cov_beta, dim, dim, i);
+	log_KLD[i] = dropped_predictor_kld(Lambda, cov_beta_col, col_means_beta[i], i);
+    }
+
+    return RATEd(log_KLD);
+}
+
 #endif
