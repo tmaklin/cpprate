@@ -127,20 +127,17 @@ inline std::vector<double> get_col(const std::vector<double> &flat, const size_t
     return res;
 }
 
-inline Eigen::MatrixXd sherman_r(const std::vector<double> &flat_lambda, const std::vector<double> &u) {
+inline std::vector<double> sherman_r(const std::vector<double> &flat_lambda, const std::vector<double> &u) {
     size_t dim = u.size();
-    Eigen::MatrixXd tmp(dim, dim);
-#pragma omp parallel for schedule(static)
-    for (size_t j = 0; j < dim; ++j) {
-	const std::vector<double> &lambda_col = get_col(flat_lambda, dim, dim, j);
-	for (size_t i = j + 1; i < dim; ++i) {
-	    tmp(i, j) = u[i] * u[j] * lambda_col[i];
-	}
-	tmp(j, j) = u[j] * u[j] * lambda_col[j];
+    std::vector<double> tmp(dim * (dim + 1)/2, 0.0);
 
+#pragma omp parallel for schedule(guided) // Last chunks are very small so "reverse guided" works ok
+    for (int64_t j = dim - 1; j >= 0; --j) {
+	size_t col_start = j * dim - j * (j - 1)/2 - j;
 	for (size_t i = j; i < dim; ++i) {
-	    tmp(i, j) = lambda_col[i] - (lambda_col[i] * tmp(i, j))/(1 + tmp(i, j));
-	    tmp(j, i) = tmp(i, j);
+	    double outer_prod = u[i] * u[j];
+	    double val = outer_prod * flat_lambda[col_start + i];
+	    tmp[col_start + i] = flat_lambda[col_start + i] - (flat_lambda[col_start + i]*val)/(1.0 + val);
 	}
     }
 
@@ -373,27 +370,31 @@ inline Eigen::MatrixXd create_lambda(const Eigen::MatrixXd &U) {
 
 inline double dropped_predictor_kld(const std::vector<double> &flat_lambda, const std::vector<double> &cov_beta_col, const double mean_beta, const size_t predictor_id) {
     double log_m = std::log(std::abs(mean_beta));
-    const Eigen::MatrixXd &U_Lambda_sub = sherman_r(flat_lambda, cov_beta_col);
+    const std::vector<double> &U_Lambda_sub_flat = sherman_r(flat_lambda, cov_beta_col);
 
     double alpha = 0.0;
 
-    for (size_t k = 0; k < U_Lambda_sub.cols(); k++) {
+    size_t dim = cov_beta_col.size();
+    const std::vector<double> &predictor_col = get_col(U_Lambda_sub_flat, dim, dim, predictor_id);
+
+    for (size_t k = 0; k < dim; k++) {
 	if (k != predictor_id) {
+	    const std::vector<double> &U_col = get_col(U_Lambda_sub_flat, dim, dim, k);
 	    double max_element = 0.0;
-	    for (size_t j = 0; j < U_Lambda_sub.rows(); ++j) {
+	    for (size_t j = 0; j < dim; ++j) {
 		if (j != predictor_id) {
-		    max_element = (max_element >= std::log(1e-16 + std::abs(U_Lambda_sub(j, predictor_id))) + std::log(1e-16 + std::abs(U_Lambda_sub(j, k))) ? max_element : std::log(1e-16 + std::abs(U_Lambda_sub(j, predictor_id))) + std::log(1e-16 + std::abs(U_Lambda_sub(j, k))));
+		    max_element = (max_element >= std::log(1e-16 + std::abs(predictor_col[j])) + std::log(1e-16 + std::abs(U_col[j])) ? max_element : std::log(1e-16 + std::abs(predictor_col[j])) + std::log(1e-16 + std::abs(U_col[j])));
 		}
 	    }
 
 	    double tmp_sum = 0.0;
-	    for (size_t j = 0; j < U_Lambda_sub.rows(); ++j) {
+	    for (size_t j = 0; j < dim; ++j) {
 		if (j != predictor_id) {
-		    tmp_sum += std::exp(std::log(1e-16 + std::abs(U_Lambda_sub(j, predictor_id))) + std::log(1e-16 + std::abs(U_Lambda_sub(j, k))) - max_element);
+		    tmp_sum += std::exp(std::log(1e-16 + std::abs(predictor_col[j])) + std::log(1e-16 + std::abs(U_col[j])) - max_element);
 		}
 	    }
 	    tmp_sum = std::log(tmp_sum) + max_element;
-	    alpha += std::exp(tmp_sum + std::log(1e-16 + std::abs(U_Lambda_sub(k, predictor_id))));
+	    alpha += std::exp(tmp_sum + std::log(1e-16 + std::abs(predictor_col[k])));
 	}
     }
 
