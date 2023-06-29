@@ -63,6 +63,27 @@ inline std::vector<double> rate_from_kld(const std::vector<double> &log_kld, con
     return RATE;
 }
 
+inline std::vector<double> rate_from_log_kld(const std::vector<double> &log_kld) {
+    double max_elem = 0.0;
+    // TODO pragma with custom reduction to find maximum
+    for (size_t i = 0; i < log_kld.size(); ++i) {
+	max_elem = (max_elem > log_kld[i] ? max_elem : log_kld[i]);
+    }
+    double tmp_sum = 0.0;
+#pragma omp parallel for schedule(static) reduction(+:tmp_sum)
+    for (size_t i = 0; i < log_kld.size(); ++i) {
+	tmp_sum += std::exp(log_kld[i] - max_elem);
+    }
+    double log_kld_sum = std::log(tmp_sum) + max_elem;
+
+    std::vector<double> RATE(log_kld.size());
+#pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < log_kld.size(); ++i) {
+	RATE[i] = std::exp(log_kld[i] - log_kld_sum);
+    }
+    return RATE;
+}
+
 inline double rate_delta(const std::vector<double> &RATE) {
     double Delta = 0.0;
     size_t num_snps = RATE.size();
@@ -96,7 +117,7 @@ public:
 
     RATEd(std::vector<double> _log_KLD) {
 	std::transform(_log_KLD.begin(), _log_KLD.end(), std::back_inserter(this->KLD), static_cast<double(*)(double)>(std::exp));
-	this->RATE = rate_from_kld(_log_KLD, std::accumulate(this->KLD.begin(), this->KLD.end(), 0.0));
+	this->RATE = rate_from_log_kld(_log_KLD);
 	this->Delta = rate_delta(RATE);
 	this->ESS = delta_to_ess(Delta);
     }
