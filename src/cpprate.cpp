@@ -48,9 +48,7 @@ void parse_args(int argc, char* argv[], cxxargs::Arguments &args) {
     args.add_short_argument<std::string>('f', "f-draws file (comma separated)");
     args.add_short_argument<std::string>('x', "design matrix (comma separated)");
     args.add_long_argument<std::string>("beta-draws", "beta-draws file (comma separated)");
-    args.add_short_argument<size_t>('n', "Number of observations (rows in design matrix; columns in f-draws");
     args.add_short_argument<size_t>('d', "Number of SNPs tested (cols in design matrix or beta-draws");
-    args.add_short_argument<size_t>('m', "Number of posterior samples (rows in f-draws or beta-draws)");
     args.add_short_argument<size_t>('t', "Number of threads to use (default: 1)", 1);
     args.add_long_argument<double>("prop-var", "Proportion of variance to explain in lowrank factorization (default: 100%)", 1.1);
     args.add_long_argument<size_t>("low-rank", "Rank of the low-rank factorization (default: min(-n, -d))", 0);
@@ -64,7 +62,6 @@ void parse_args(int argc, char* argv[], cxxargs::Arguments &args) {
     if (CmdOptionPresent(argv, argv+argc, "--beta-draws") && !CmdOptionPresent(argv, argv+argc, "--help")) {
 	args.set_not_required('f');
 	args.set_not_required('x');
-	args.set_not_required('n');
     } else if (!CmdOptionPresent(argv, argv+argc, "--help")) {
 	args.set_not_required("beta-draws");
     }
@@ -132,13 +129,10 @@ int main(int argc, char* argv[]) {
   bool from_beta_draws = CmdOptionPresent(argv, argv+argc, "--beta-draws");
 
   size_t n_snps = args.value<size_t>('d');
-  size_t n_f_draws = args.value<size_t>('m');
 
   Eigen::MatrixXd posterior_draws;
   Eigen::SparseMatrix<double> design_matrix;
-  size_t n_obs;
   if (!from_beta_draws) {
-      n_obs = args.value<size_t>('n');
       std::ifstream in(args.value<std::string>('f'));
       std::ifstream in2(args.value<std::string>('x'));
       read_nonlinear(n_snps, &in, &in2, &posterior_draws, &design_matrix);
@@ -154,7 +148,7 @@ int main(int argc, char* argv[]) {
   if (args.value<bool>("fullrank") && !from_beta_draws) {
       res = RATE_fullrank(posterior_draws, design_matrix, n_snps);
   } else if (!from_beta_draws) {
-      size_t svd_rank = args.value<size_t>("low-rank") == 0 ? std::min(n_obs, n_snps) : args.value<size_t>("low-rank");
+      size_t svd_rank = args.value<size_t>("low-rank") == 0 ? std::min(design_matrix.rows(), design_matrix.cols()) : args.value<size_t>("low-rank");
       res = RATE_lowrank(posterior_draws, design_matrix, n_snps, svd_rank, args.value<double>("prop-var"));
   } else if (from_beta_draws) {
       res = RATE_beta_draws(posterior_draws, n_snps);
