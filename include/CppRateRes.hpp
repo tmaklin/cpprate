@@ -135,9 +135,10 @@ inline std::vector<double> sherman_r(const std::vector<double> &flat_lambda, con
     for (int64_t j = dim - 1; j >= 0; --j) {
 	size_t col_start = j * dim - j * (j - 1)/2 - j;
 	for (size_t i = j; i < dim; ++i) {
-	    double outer_prod = u[i] * u[j];
-	    double val = outer_prod * flat_lambda[col_start + i];
-	    tmp[col_start + i] = flat_lambda[col_start + i] - (flat_lambda[col_start + i]*val)/(1.0 + val);
+	    double log_outer_prod = std::log(std::abs(u[i]) + 1e-16) + std::log(std::abs(u[j]) + 1e-16);
+	    double log_flat_lambda = std::log(std::abs(flat_lambda[col_start + 1]) + 1e-16);
+	    double log_val = log_outer_prod + log_flat_lambda;
+	    tmp[col_start + i] = flat_lambda[col_start + i] - std::exp(log_flat_lambda + log_val - std::log1p(std::exp(log_val)));
 	}
     }
 
@@ -371,32 +372,60 @@ inline Eigen::MatrixXd create_lambda(const Eigen::MatrixXd &U) {
 inline double get_alpha(const std::vector<double> &U_Lambda_sub_flat, const size_t dim, const size_t predictor_id) {
     // TODO tests
     double alpha = 0.0;
-    const std::vector<double> &predictor_col = get_col(U_Lambda_sub_flat, dim, dim, predictor_id);
-#pragma omp parallel for schedule(guided) reduction(+:alpha)
+    std::vector<double> predictor_col = std::move(get_col(U_Lambda_sub_flat, dim, dim, predictor_id));
+    for (size_t i = 0; i < predictor_col.size(); ++i) {
+	predictor_col[i] = std::log(std::abs(predictor_col[i]) + 1e-16);
+    }
+    std::vector<double> alpha_parts(dim, 0.0);
+    double alpha_parts_max = 0.0;
+#pragma omp parallel for schedule(guided) reduction(vec_double_plus:alpha_parts)
     for (int64_t j = dim - 1; j >= 0; --j) {
+	std::vector<double> res_vec(dim, 0.0);
 	if (j != predictor_id) {
+	    double max_elem = 0.0;
+
 	    size_t col_start = j * dim - j * (j - 1)/2 - j;
-	    alpha += (predictor_col[j] * U_Lambda_sub_flat[col_start + j]) * predictor_col[j];
+	    res_vec[predictor_id] += predictor_col[j] + std::log(std::abs(U_Lambda_sub_flat[col_start + j]) + 1e-16) + predictor_col[j];
+	    max_elem = (max_elem > res_vec[predictor_id] ? max_elem : res_vec[predictor_id]);
 	    for (size_t i = (j + 1); i < dim; ++i) {
 		if (i != predictor_id) {
-		    double res = (predictor_col[i] * U_Lambda_sub_flat[col_start + i]) * predictor_col[j];
-		    alpha += res;
-		    alpha += res;
+		    res_vec[i] += predictor_col[i] + std::log(std::abs(U_Lambda_sub_flat[col_start + i]) + 1e-16) + predictor_col[j];
+		}
+		max_elem = (max_elem > res_vec[i] ? max_elem : res_vec[i]);
+	    }
+
+	    double tmp_sum = 0.0;
+	    for (size_t i = 0; i < dim; ++i) {
+		double val = std::exp(res_vec[i] - max_elem);
+		tmp_sum += val;
+		if (i != predictor_id) {
+		    tmp_sum += val;
 		}
 	    }
+	    alpha_parts[j] += std::log(tmp_sum) + max_elem;
+	    alpha_parts_max = (alpha_parts_max > alpha_parts[j] ? alpha_parts_max : alpha_parts[j]);
 	}
     }
-    return alpha;
+
+    double alpha_sum = 0.0;
+    for (size_t i = 0; i < dim; ++i) {
+	if (i != predictor_id) {
+	    alpha_sum += std::exp(alpha_parts[i] - alpha_parts_max);
+	}
+    }
+    double log_alpha = std::log(alpha_sum) + alpha_parts_max;
+
+    return log_alpha;
 }
 
 inline double dropped_predictor_kld(const std::vector<double> &flat_lambda, const std::vector<double> &cov_beta_col, const double mean_beta, const size_t predictor_id) {
-    double log_m = std::log(std::abs(mean_beta));
+    double log_m = std::log(std::abs(mean_beta) + 1e-16);
     const std::vector<double> &U_Lambda_sub_flat = sherman_r(flat_lambda, cov_beta_col);
 
     size_t dim = cov_beta_col.size();
-    const double alpha = get_alpha(U_Lambda_sub_flat, dim, predictor_id);
+    const double log_alpha = get_alpha(U_Lambda_sub_flat, dim, predictor_id);
 
-    return std::log(0.5) + log_m + std::log(alpha) + log_m;
+    return std::log(0.5) + log_m + log_alpha + log_m;
 }
 
 inline double dropped_predictor_kld_lowrank(const std::vector<double> &flat_Lambda, const Eigen::MatrixXd &f_Lambda, const Eigen::MatrixXd &Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::VectorXd &svd_v_col, const double mean_beta, const size_t predictor_id) {
@@ -404,10 +433,10 @@ inline double dropped_predictor_kld_lowrank(const std::vector<double> &flat_Lamb
     const std::vector<double> &flat_U_Lambda_sub = sherman_r_lowrank(flat_Lambda, f_Lambda, Lambda_chol, v_Sigma_star, svd_v_col);
 
     size_t dim = f_Lambda.rows();
-    const double alpha = get_alpha(flat_U_Lambda_sub, dim, predictor_id);
+    const double log_alpha = get_alpha(flat_U_Lambda_sub, dim, predictor_id);
 
     double log_m = std::log(std::abs(mean_beta));
-    return std::log(0.5) + log_m + std::log(alpha) + log_m;
+    return std::log(0.5) + log_m + log_alpha + log_m;
 }
 
 inline Eigen::MatrixXd project_f_draws(const Eigen::MatrixXd &f_draws, const Eigen::MatrixXd &v) {
