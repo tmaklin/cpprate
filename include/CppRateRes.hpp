@@ -440,7 +440,7 @@ inline double get_alpha(const std::vector<double> &U_Lambda_sub_flat, const size
 }
 
 inline double dropped_predictor_kld(const std::vector<double> &flat_lambda, const std::vector<double> &cov_beta_col, const double mean_beta, const size_t predictor_id) {
-    double log_m = std::log(std::abs(mean_beta) + 1e-16);
+    double log_m = std::log(std::abs(mean_beta) + 1e-16); // Sign is lost in the return value so doesn't matter
     const std::vector<double> &U_Lambda_sub_flat = sherman_r(flat_lambda, cov_beta_col);
 
     size_t dim = cov_beta_col.size();
@@ -569,34 +569,6 @@ inline RATEd RATE_lowrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMat
     return RATEd(log_KLD);
 }
 
-inline RATEd RATE_fullrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMatrix<double> &design_matrix, const size_t n_snps) {
-    // ## WARNING: Do not compile with -ffast-math
-
-    std::vector<double> flat_lambda;
-    Eigen::VectorXd col_means_beta;
-    std::vector<double> flat_cov_beta;
-    size_t dim = design_matrix.cols();
-
-    {
-	Eigen::MatrixXd beta_draws = std::move(nonlinear_coefficients(design_matrix, f_draws));
-	col_means_beta = col_means(beta_draws);
-	const Eigen::MatrixXd &cov_beta = covariance_matrix(beta_draws);
-	beta_draws.resize(0, 0);
-	flat_lambda = flatten_triangular(create_lambda(decompose_covariance_matrix(cov_beta)));
-	flat_cov_beta = flatten_triangular(cov_beta);
-    }
-
-    std::vector<double> log_KLD(n_snps);
-
-#pragma omp parallel for schedule(static)
-    for (size_t i = 0; i < n_snps; ++i) {
-	const std::vector<double> &cov_beta_col = get_col(flat_cov_beta, dim, dim, i);
-	log_KLD[i] = dropped_predictor_kld(flat_lambda, cov_beta_col, col_means_beta[i], i);
-    }
-
-    return RATEd(log_KLD);
-}
-
 inline RATEd RATE_beta_draws(const Eigen::MatrixXd &beta_draws, const size_t n_snps) {
     // ## WARNING: Do not compile with -ffast-math
 
@@ -612,7 +584,7 @@ inline RATEd RATE_beta_draws(const Eigen::MatrixXd &beta_draws, const size_t n_s
 	flat_cov_beta = flatten_triangular(cov_beta);
     }
 
-    std::vector<double> log_KLD(n_snps);
+    std::vector<double> log_KLD(n_snps, 0.0);
 
 #pragma omp parallel for schedule(static)
     for (size_t i = 0; i < n_snps; ++i) {
@@ -621,6 +593,15 @@ inline RATEd RATE_beta_draws(const Eigen::MatrixXd &beta_draws, const size_t n_s
     }
 
     return RATEd(log_KLD);
+}
+
+inline RATEd RATE_fullrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMatrix<double> &design_matrix, const size_t n_snps) {
+    // ## WARNING: Do not compile with -ffast-math
+    const Eigen::MatrixXd &beta_draws = nonlinear_coefficients(design_matrix, f_draws);
+
+    const RATEd &res = RATE_beta_draws(beta_draws, n_snps);
+
+    return res;
 }
 
 #endif
