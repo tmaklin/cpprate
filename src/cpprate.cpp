@@ -76,7 +76,7 @@ void read_nonlinear(size_t *n_snps, std::istream *f_draws_file, std::istream *de
     bool first_line = true;
     while (std::getline(*design_matrix_file, line)) {
 	if (first_line) {
-	    *n_snps = std::count(line.begin(), line.end(), ',');
+	    *n_snps = std::count(line.begin(), line.end(), ',') + 1;
 	    first_line = false;
 	}
 	std::stringstream parts(line);
@@ -108,7 +108,7 @@ void read_beta_draws(size_t *n_snps, std::istream *beta_draws_file, Eigen::Matri
     bool first_line = true;
     while (std::getline(*beta_draws_file, line)) {
 	if (first_line) {
-	    *n_snps = std::count(line.begin(), line.end(), ',');
+	    *n_snps = std::count(line.begin(), line.end(), ',') + 1;
 	    first_line = false;
 	}
 	std::stringstream parts(line);
