@@ -47,9 +47,10 @@ bool CmdOptionPresent(char **begin, char **end, const std::string &option) {
 void parse_args(int argc, char* argv[], cxxargs::Arguments &args) {
     args.add_short_argument<std::string>('f', "f-draws file (comma separated)");
     args.add_short_argument<std::string>('x', "design matrix (comma separated)");
+    args.add_long_argument<std::string>("beta-draws", "beta-draws file (comma separated)");
     args.add_short_argument<size_t>('n', "Number of observations (rows in design matrix; columns in f-draws");
-    args.add_short_argument<size_t>('d', "Number of SNPs tested (cols in design matrix");
-    args.add_short_argument<size_t>('m', "Number of posterior samples (rows in f-draws)");
+    args.add_short_argument<size_t>('d', "Number of SNPs tested (cols in design matrix or beta-draws");
+    args.add_short_argument<size_t>('m', "Number of posterior samples (rows in f-draws or beta-draws)");
     args.add_short_argument<size_t>('t', "Number of threads to use (default: 1)", 1);
     args.add_long_argument<double>("prop-var", "Proportion of variance to explain in lowrank factorization (default: 100%)", 1.1);
     args.add_long_argument<size_t>("low-rank", "Rank of the low-rank factorization (default: min(-n, -d))", 0);
@@ -58,8 +59,60 @@ void parse_args(int argc, char* argv[], cxxargs::Arguments &args) {
     args.add_long_argument<bool>("help", "Print the help message.", false);
     if (CmdOptionPresent(argv, argv+argc, "--help")) {
 	std::cout << "\n" + args.help() << '\n' << std::endl;
-  }
-  args.parse(argc, argv);
+    }
+
+    if (CmdOptionPresent(argv, argv+argc, "--beta-draws") && !CmdOptionPresent(argv, argv+argc, "--help")) {
+	args.set_not_required('f');
+	args.set_not_required('x');
+	args.set_not_required('n');
+    } else if (!CmdOptionPresent(argv, argv+argc, "--help")) {
+	args.set_not_required("beta-draws");
+    }
+
+    args.parse(argc, argv);
+}
+
+void read_nonlinear(const size_t n_snps, std::istream *f_draws_file, std::istream *design_matrix_file, Eigen::MatrixXd *f_draws_mat, Eigen::SparseMatrix<double> *design_matrix_mat) {
+    // TODO split into read_f_draws and read_design_matrix
+    size_t n_obs = 0;
+    std::vector<bool> X;
+    std::string line;
+    while (std::getline(*design_matrix_file, line)) {
+	std::stringstream parts(line);
+	std::string part;
+	while(std::getline(parts, part, ',')) {
+	    X.emplace_back((bool)std::stol(part));
+	}
+	++n_obs;
+    }
+    *design_matrix_mat = std::move(vec_to_sparse_matrix<double, bool>(X, n_obs, n_snps));
+
+    size_t n_f_draws = 0;
+    std::vector<double> f_draws;
+    while (std::getline(*f_draws_file, line)) {
+	std::stringstream parts(line);
+	std::string part;
+	while(std::getline(parts, part, ',')) {
+	    f_draws.emplace_back(std::stold(part));
+	}
+	++n_f_draws;
+    }
+    *f_draws_mat = std::move(vec_to_dense_matrix(f_draws, n_f_draws, n_obs));
+}
+
+void read_beta_draws(const size_t n_snps, std::istream *beta_draws_file, Eigen::MatrixXd *beta_draws_mat) {
+    std::vector<double> beta_draws;
+    size_t n_posterior_draws = 0;
+    std::string line;
+    while (std::getline(*beta_draws_file, line)) {
+	std::stringstream parts(line);
+	std::string part;
+	while(std::getline(parts, part, ',')) {
+	    beta_draws.emplace_back(std::stold(part));
+	}
+	++n_posterior_draws;
+    }
+    *beta_draws_mat = std::move(vec_to_dense_matrix(beta_draws, n_posterior_draws, n_snps));
 }
 
 int main(int argc, char* argv[]) {
@@ -76,42 +129,35 @@ int main(int argc, char* argv[]) {
 
   omp_set_num_threads(args.value<size_t>('t'));
 
-  size_t n_obs = args.value<size_t>('n');
+  bool from_beta_draws = CmdOptionPresent(argv, argv+argc, "--beta-draws");
+
   size_t n_snps = args.value<size_t>('d');
   size_t n_f_draws = args.value<size_t>('m');
 
-  std::vector<double> f_draws;
-  std::ifstream in(args.value<std::string>('f'));
-  std::string line;
-  while (std::getline(in, line)) {
-      std::stringstream parts(line);
-      std::string part;
-      while(std::getline(parts, part, ',')) {
-	  f_draws.emplace_back(std::stold(part));
-      }
+  Eigen::MatrixXd posterior_draws;
+  Eigen::SparseMatrix<double> design_matrix;
+  size_t n_obs;
+  if (!from_beta_draws) {
+      n_obs = args.value<size_t>('n');
+      std::ifstream in(args.value<std::string>('f'));
+      std::ifstream in2(args.value<std::string>('x'));
+      read_nonlinear(n_snps, &in, &in2, &posterior_draws, &design_matrix);
+      in.close();
+      in2.close();
+  } else {
+      std::ifstream in(args.value<std::string>("beta-draws"));
+      read_beta_draws(n_snps, &in, &posterior_draws);
+      in.close();
   }
-  in.close();
-  const Eigen::MatrixXd &f_draws_mat = vec_to_dense_matrix(f_draws, n_f_draws, n_obs);
-
-  std::vector<bool> X;
-  std::ifstream in2(args.value<std::string>('x'));
-  while (std::getline(in2, line)) {
-      std::stringstream parts(line);
-      std::string part;
-      while(std::getline(parts, part, ',')) {
-	  X.emplace_back((bool)std::stol(part));
-      }
-  }
-  in2.close();
-
-  const Eigen::SparseMatrix<double> &design_matrix = vec_to_sparse_matrix<double, bool>(X, n_obs, n_snps);
 
   RATEd res;
-  if (args.value<bool>("fullrank")) {
-      res = RATE_fullrank(f_draws_mat, design_matrix, n_snps);
-  } else {
+  if (args.value<bool>("fullrank") && !from_beta_draws) {
+      res = RATE_fullrank(posterior_draws, design_matrix, n_snps);
+  } else if (!from_beta_draws) {
       size_t svd_rank = args.value<size_t>("low-rank") == 0 ? std::min(n_obs, n_snps) : args.value<size_t>("low-rank");
-      res = RATE_lowrank(f_draws_mat, design_matrix, n_snps, svd_rank, args.value<double>("prop-var"));
+      res = RATE_lowrank(posterior_draws, design_matrix, n_snps, svd_rank, args.value<double>("prop-var"));
+  } else if (from_beta_draws) {
+      res = RATE_beta_draws(posterior_draws, n_snps);
   }
 
   std::cout << "#ESS: " << res.ESS << '\n';
