@@ -37,6 +37,7 @@
 #include <fstream>
 #include <string>
 #include <cstddef>
+#include <algorithm>
 
 #include "CppRateRes.hpp"
 
@@ -48,12 +49,10 @@ void parse_args(int argc, char* argv[], cxxargs::Arguments &args) {
     args.add_short_argument<std::string>('f', "f-draws file (comma separated)");
     args.add_short_argument<std::string>('x', "design matrix (comma separated)");
     args.add_long_argument<std::string>("beta-draws", "beta-draws file (comma separated)");
-    args.add_short_argument<size_t>('d', "Number of SNPs tested (cols in design matrix or beta-draws");
     args.add_short_argument<size_t>('t', "Number of threads to use (default: 1)", 1);
     args.add_long_argument<double>("prop-var", "Proportion of variance to explain in lowrank factorization (default: 100%)", 1.1);
-    args.add_long_argument<size_t>("low-rank", "Rank of the low-rank factorization (default: min(-n, -d))", 0);
+    args.add_long_argument<size_t>("low-rank", "Rank of the low-rank factorization (default: min(design_matrix.rows(), design_matrix.cols()))", 0);
     args.add_long_argument<bool>("fullrank", "Run fullrank algorithm (default: false)", false);
-    args.add_long_argument<size_t>("lowrank-dim", "Dimension of the lowrank approximation (default: min(n, d))", 0);
     args.add_long_argument<bool>("help", "Print the help message.", false);
     if (CmdOptionPresent(argv, argv+argc, "--help")) {
 	std::cout << "\n" + args.help() << '\n' << std::endl;
@@ -69,12 +68,17 @@ void parse_args(int argc, char* argv[], cxxargs::Arguments &args) {
     args.parse(argc, argv);
 }
 
-void read_nonlinear(const size_t n_snps, std::istream *f_draws_file, std::istream *design_matrix_file, Eigen::MatrixXd *f_draws_mat, Eigen::SparseMatrix<double> *design_matrix_mat) {
+void read_nonlinear(size_t *n_snps, std::istream *f_draws_file, std::istream *design_matrix_file, Eigen::MatrixXd *f_draws_mat, Eigen::SparseMatrix<double> *design_matrix_mat) {
     // TODO split into read_f_draws and read_design_matrix
     size_t n_obs = 0;
     std::vector<bool> X;
     std::string line;
+    bool first_line = true;
     while (std::getline(*design_matrix_file, line)) {
+	if (first_line) {
+	    *n_snps = std::count(line.begin(), line.end(), ',');
+	    first_line = false;
+	}
 	std::stringstream parts(line);
 	std::string part;
 	while(std::getline(parts, part, ',')) {
@@ -82,7 +86,7 @@ void read_nonlinear(const size_t n_snps, std::istream *f_draws_file, std::istrea
 	}
 	++n_obs;
     }
-    *design_matrix_mat = std::move(vec_to_sparse_matrix<double, bool>(X, n_obs, n_snps));
+    *design_matrix_mat = std::move(vec_to_sparse_matrix<double, bool>(X, n_obs, *n_snps));
 
     size_t n_f_draws = 0;
     std::vector<double> f_draws;
@@ -97,11 +101,16 @@ void read_nonlinear(const size_t n_snps, std::istream *f_draws_file, std::istrea
     *f_draws_mat = std::move(vec_to_dense_matrix(f_draws, n_f_draws, n_obs));
 }
 
-void read_beta_draws(const size_t n_snps, std::istream *beta_draws_file, Eigen::MatrixXd *beta_draws_mat) {
+void read_beta_draws(size_t *n_snps, std::istream *beta_draws_file, Eigen::MatrixXd *beta_draws_mat) {
     std::vector<double> beta_draws;
     size_t n_posterior_draws = 0;
     std::string line;
+    bool first_line = true;
     while (std::getline(*beta_draws_file, line)) {
+	if (first_line) {
+	    *n_snps = std::count(line.begin(), line.end(), ',');
+	    first_line = false;
+	}
 	std::stringstream parts(line);
 	std::string part;
 	while(std::getline(parts, part, ',')) {
@@ -109,7 +118,7 @@ void read_beta_draws(const size_t n_snps, std::istream *beta_draws_file, Eigen::
 	}
 	++n_posterior_draws;
     }
-    *beta_draws_mat = std::move(vec_to_dense_matrix(beta_draws, n_posterior_draws, n_snps));
+    *beta_draws_mat = std::move(vec_to_dense_matrix(beta_draws, n_posterior_draws, *n_snps));
 }
 
 int main(int argc, char* argv[]) {
@@ -128,19 +137,19 @@ int main(int argc, char* argv[]) {
 
   bool from_beta_draws = CmdOptionPresent(argv, argv+argc, "--beta-draws");
 
-  size_t n_snps = args.value<size_t>('d');
+  size_t n_snps = 0;
 
   Eigen::MatrixXd posterior_draws;
   Eigen::SparseMatrix<double> design_matrix;
   if (!from_beta_draws) {
       std::ifstream in(args.value<std::string>('f'));
       std::ifstream in2(args.value<std::string>('x'));
-      read_nonlinear(n_snps, &in, &in2, &posterior_draws, &design_matrix);
+      read_nonlinear(&n_snps, &in, &in2, &posterior_draws, &design_matrix);
       in.close();
       in2.close();
   } else {
       std::ifstream in(args.value<std::string>("beta-draws"));
-      read_beta_draws(n_snps, &in, &posterior_draws);
+      read_beta_draws(&n_snps, &in, &posterior_draws);
       in.close();
   }
 
