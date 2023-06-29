@@ -525,13 +525,12 @@ inline RATEd RATE_fullrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMa
     std::vector<double> flat_lambda;
     Eigen::VectorXd col_means_beta;
     std::vector<double> flat_cov_beta;
-    size_t dim;
+    size_t dim = design_matrix.cols();
 
     {
 	Eigen::MatrixXd beta_draws = std::move(nonlinear_coefficients(design_matrix, f_draws));
 	col_means_beta = col_means(beta_draws);
 	const Eigen::MatrixXd &cov_beta = covariance_matrix(beta_draws);
-	dim = cov_beta.rows();
 	beta_draws.resize(0, 0);
 	flat_lambda = flatten_triangular(create_lambda(decompose_covariance_matrix(cov_beta)));
 	flat_cov_beta = flatten_triangular(cov_beta);
@@ -554,12 +553,11 @@ inline RATEd RATE_beta_draws(const Eigen::MatrixXd &beta_draws, const size_t n_s
     std::vector<double> flat_lambda;
     Eigen::VectorXd col_means_beta;
     std::vector<double> flat_cov_beta;
-    size_t dim;
+    size_t dim = beta_draws.cols();
 
     {
 	col_means_beta = col_means(beta_draws);
 	const Eigen::MatrixXd &cov_beta = covariance_matrix(beta_draws);
-	dim = cov_beta.rows();
 	flat_lambda = flatten_triangular(create_lambda(decompose_covariance_matrix(cov_beta)));
 	flat_cov_beta = flatten_triangular(cov_beta);
     }
