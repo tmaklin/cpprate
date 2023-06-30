@@ -148,7 +148,7 @@ inline std::vector<double> get_col(const std::vector<double> &flat, const size_t
     return res;
 }
 
-inline std::vector<double> sherman_r(const std::vector<double> &flat_lambda, const std::vector<double> &u) {
+inline std::vector<double> sherman_r(const std::vector<double> &abs_flat_lambda, const std::vector<double> &u) {
     size_t dim = u.size();
     std::vector<double> tmp(dim * (dim + 1)/2, 0.0);
 
@@ -157,9 +157,9 @@ inline std::vector<double> sherman_r(const std::vector<double> &flat_lambda, con
 	size_t col_start = j * dim - j * (j - 1)/2 - j;
 	for (size_t i = j; i < dim; ++i) {
 	    double log_outer_prod = std::log(std::abs(u[i]) + 1e-16) + std::log(std::abs(u[j]) + 1e-16);
-	    double log_flat_lambda = std::log(std::abs(flat_lambda[col_start + 1]) + 1e-16);
+	    double log_flat_lambda = std::log(abs_flat_lambda[col_start + 1]);
 	    double log_val = log_outer_prod + log_flat_lambda;
-	    tmp[col_start + i] = flat_lambda[col_start + i] - std::exp(log_flat_lambda + log_val - std::log1p(std::exp(log_val)));
+	    tmp[col_start + i] = abs_flat_lambda[col_start + i] - std::exp(log_flat_lambda + log_val - std::log1p(std::exp(log_val)));
 	}
     }
 
@@ -582,6 +582,10 @@ inline RATEd RATE_beta_draws(const Eigen::MatrixXd &beta_draws, const size_t n_s
 	const Eigen::MatrixXd &cov_beta = covariance_matrix(beta_draws);
 	flat_lambda = flatten_triangular(create_lambda(decompose_covariance_matrix(cov_beta)));
 	flat_cov_beta = flatten_triangular(cov_beta);
+#pragma omp parallel for schedule(static)
+	for (size_t i = 0; i < flat_lambda.size(); ++i) {
+	    flat_lambda[i] = std::abs(flat_lambda[i]) + 1e-16;
+	}
     }
 
     std::vector<double> log_KLD(n_snps, 0.0);
