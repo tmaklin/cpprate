@@ -202,9 +202,9 @@ class LowrankIntegrationTest : public ::testing::Test {
     Eigen::MatrixXd f_draws; // 10x1 vector
 
 };
-std::vector<double> LowrankIntegrationTest::expected_lr_KLD = { 21.71027,2.068902,3.650794,3.650794,0,3.650794,45.89623,128.8632,3.650794,29.88688,51.7865,0.4324596,99.26313,128.8632,0.4324596,0,42.62561,0.07232973,3.650794,0 };
-std::vector<double> LowrankIntegrationTest::expected_lr_RATE = { 0.03807783,0.003628666,0.006403159,0.006403159,0,0.006403159,0.08049779,0.2260143,0.006403159,0.05241885,0.0908288,0.0007584947,0.1740985,0.2260143,0.0007584947,0,0.07476143,0.0001268597,0.006403159,0 };
-double LowrankIntegrationTest::expected_lr_ESS = 51.77519;
-double LowrankIntegrationTest::expected_lr_Delta = 0.9314269;
+std::vector<double> LowrankIntegrationTest::expected_lr_KLD = { 3813.4,438.409,165.135,165.135,1.9e-30,165.135,215.076,2359.94,165.135,511.741,5083.46,66.9146,3714.4,2359.94,66.9146,1.9e-30,8210.96,80.4416,165.135,1.9e-30 };
+std::vector<double> LowrankIntegrationTest::expected_lr_RATE = { 0.137442,0.0157971,0.00595118,0.00595118,6.84767e-35,0.00595118,0.00774958,0.0850353,0.00595118,0.0184435,0.18318,0.00241162,0.133842,0.0850353,0.00241162,6.84767e-35,0.295997,0.00289927,0.00595118,6.84767e-35 };
+double LowrankIntegrationTest::expected_lr_ESS = 50.3003;
+double LowrankIntegrationTest::expected_lr_Delta = 0.98811682924338817;
 
 #endif

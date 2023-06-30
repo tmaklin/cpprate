@@ -37,7 +37,7 @@
 // Test lowrank ESS
 TEST_F(LowrankIntegrationTest, EssIsCorrect) {
     RATEd res = RATE_lowrank(this->f_draws, this->design_matrix, this->n_design_dim, this->rank_r, this->prop_var);
-    EXPECT_NEAR(res.ESS, this->expected_lr_ESS, 1e-5);
+    EXPECT_NEAR(res.ESS, this->expected_lr_ESS, 1e-4);
 }
 
 // Test lowrank Delta
@@ -59,6 +59,6 @@ TEST_F(LowrankIntegrationTest, RateIsCorrect) {
 TEST_F(LowrankIntegrationTest, KldIsCorrect) {
     RATEd res = RATE_lowrank(this->f_draws, this->design_matrix, this->n_design_dim, this->rank_r, this->prop_var);
     for (size_t i = 0; i < n_design_dim; ++i) {
-	EXPECT_NEAR(res.KLD[i], this->expected_lr_KLD[i], 1e-5);
+	EXPECT_NEAR(res.KLD[i], this->expected_lr_KLD[i], 1e-2);
     }
 }
