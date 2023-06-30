@@ -464,7 +464,6 @@ inline double dropped_predictor_kld(const std::vector<double> &flat_lambda, cons
 
 inline double dropped_predictor_kld_lowrank(const std::vector<double> &flat_Lambda, const Eigen::MatrixXd &log_f_Lambda, const Eigen::MatrixXd &log_Lambda_chol, const Eigen::MatrixXd &log_v_Sigma_star, const Eigen::VectorXd &svd_v_col, const double mean_beta, const size_t predictor_id) {
     // TODO: tests
-    // TODO: check which inputs can be precalculated in log/abs space?
     const std::vector<double> &flat_U_Lambda_sub = sherman_r_lowrank(flat_Lambda, log_f_Lambda, log_Lambda_chol, log_v_Sigma_star, svd_v_col);
 
     size_t dim = log_f_Lambda.rows();
@@ -563,7 +562,7 @@ inline RATEd RATE_lowrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMat
     {
 	Eigen::MatrixXd Lambda = Eigen::MatrixXd::Zero(n_snps, n_snps);
 	Lambda.template selfadjointView<Eigen::Lower>().rankUpdate(Lambda_chol);
-	Lambda_f = Lambda.triangularView<Eigen::Lower>() * v_Sigma_star; // TODO this could be flattened?
+	Lambda_f = Lambda.triangularView<Eigen::Lower>() * v_Sigma_star;
 	flat_Lambda = flatten_triangular(Lambda);
 #pragma omp parallel for schedule(static)
 	for (size_t i = 0; i < Lambda_f.cols(); ++i) {
