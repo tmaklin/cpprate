@@ -168,19 +168,32 @@ inline std::vector<double> sherman_r(const std::vector<double> &abs_flat_lambda,
 
 inline double create_denominator(const Eigen::MatrixXd &t_Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::VectorXd &svd_v_col) {
     // TODO: tests
-    double square_norm = 0.0;
-#pragma omp parallel for schedule(static) reduction(+:square_norm)
+    std::vector<double> square_norms(v_Sigma_star.cols(), 0.0);
+#pragma omp parallel for schedule(static) reduction(vec_double_plus:square_norms)
     for (size_t j = 0; j < v_Sigma_star.cols(); ++j) {
 	for (size_t i = 0; i < v_Sigma_star.rows(); ++i) {
-	    double prod = (v_Sigma_star(i, j) * svd_v_col(j)) * t_Lambda_chol(i, j);
-	    square_norm += prod * prod;
+	    double log_prod = std::log(std::abs(v_Sigma_star(i, j) + 1e-16)) + std::log(std::abs(svd_v_col(j) + 1e-16)) + std::log(std::abs(t_Lambda_chol(i, j)) + 1e-16);
+	    square_norms[j] += log_prod + log_prod;
 	}
     }
 
-    return square_norm + 1.0;
+    double max_element = 0.0;
+    for (size_t j = 0; j < v_Sigma_star.cols(); ++j) {
+	max_element = (max_element > square_norms[j] ? max_element : square_norms[j]);
+    }
+    double logsumexp = 0.0;
+
+#pragma omp parallel for schedule(static) reduction(+:logsumexp)
+    for (size_t j = 0; j < v_Sigma_star.cols(); ++j) {
+	logsumexp += std::exp(square_norms[j] - max_element);
+    }
+
+    logsumexp += std::log(logsumexp) + max_element;
+
+    return std::exp(logsumexp);
 }
 
-inline std::vector<double> create_nominator(const Eigen::MatrixXd &f_Lambda, const Eigen::VectorXd &svd_v_col) {
+inline std::vector<double> create_log_nominator(const Eigen::MatrixXd &f_Lambda, const Eigen::VectorXd &svd_v_col) {
     // TODO: tests
     size_t dim = f_Lambda.rows();
     std::vector<double> tmp(dim, 0.0);
@@ -188,35 +201,35 @@ inline std::vector<double> create_nominator(const Eigen::MatrixXd &f_Lambda, con
 #pragma omp parallel for schedule(static) reduction(vec_double_plus:tmp)
     for (size_t j = 0; j < f_Lambda.cols(); ++j) {
 	for (size_t i = 0; i < dim; ++i) {
-	    tmp[i] += f_Lambda(i, j) * svd_v_col(j);
+	    tmp[i] += std::log(std::abs(f_Lambda(i, j)) + 1e-16) + std::log(std::abs(svd_v_col(j)) + 1e-16);
 	}
     }
 
-    std::vector<double> nominator(dim * (dim + 1)/2, 0.0);
+    std::vector<double> log_nominator(dim * (dim + 1)/2, 0.0);
 
 #pragma omp parallel for schedule(guided) // Last chunks are very small so "reverse guided" works ok
     for (int64_t j = dim - 1; j >= 0; --j) {
 	size_t col_start = j * dim - j * (j - 1)/2 - j;
 	for (size_t i = j; i < dim; ++i) {
-	    nominator[col_start + i] = tmp[i] * tmp[j];
+	    log_nominator[col_start + i] = tmp[i] + tmp[j];
 	}
     }
 
-    return nominator;
+    return log_nominator;
 }
 
 inline std::vector<double> sherman_r_lowrank(const std::vector<double> &flat_Lambda, const Eigen::MatrixXd &f_Lambda, const Eigen::MatrixXd &Lambda_chol, const Eigen::MatrixXd &v_Sigma_star, const Eigen::VectorXd &svd_v_col) {
     // TODO: tests
-    const double denominator = create_denominator(Lambda_chol, v_Sigma_star, svd_v_col);
-    std::vector<double> nominator = create_nominator(f_Lambda, svd_v_col);
+    const double log_denominator = std::log1p(create_denominator(Lambda_chol, v_Sigma_star, svd_v_col));
+    std::vector<double> log_nominator = create_log_nominator(f_Lambda, svd_v_col);
 
     size_t dim = f_Lambda.rows() * (f_Lambda.rows() + 1)/2;
 #pragma omp parallel for schedule(static)
     for (size_t i = 0; i < dim; ++i) {
-	nominator[i] = flat_Lambda[i] - (nominator[i]/denominator);
+	log_nominator[i] = flat_Lambda[i] - std::exp(log_nominator[i] - log_denominator);
     }
 
-    return nominator;
+    return log_nominator;
 }
 
 template <typename T>
