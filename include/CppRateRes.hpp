@@ -169,18 +169,29 @@ inline std::vector<double> sherman_r(const std::vector<double> &abs_flat_lambda,
 inline double create_denominator(const Eigen::MatrixXd &log_v_Sigma_star, const Eigen::VectorXd &svd_v_col) {
     // TODO: tests
     std::vector<double> square_norms(log_v_Sigma_star.cols(), 0.0);
-#pragma omp parallel for schedule(static) reduction(vec_double_plus:square_norms)
-    for (size_t j = 0; j < log_v_Sigma_star.cols(); ++j) {
-	for (size_t i = 0; i < log_v_Sigma_star.rows(); ++i) {
-	    double log_prod = log_v_Sigma_star(i, j) + std::log(std::abs(svd_v_col(j) + 1e-16));
-	    square_norms[j] += log_prod + log_prod;
+
+    double max_element = 0.0;
+#pragma omp parallel
+    {
+	double local_max = 0.0;
+#pragma omp for schedule(static) reduction(vec_double_plus:square_norms)
+	for (size_t j = 0; j < log_v_Sigma_star.cols(); ++j) {
+	    for (size_t i = 0; i < log_v_Sigma_star.rows(); ++i) {
+		double log_prod = log_v_Sigma_star(i, j) + std::log(std::abs(svd_v_col(j) + 1e-16));
+		square_norms[j] += log_prod + log_prod;
+	    }
+	    local_max = (local_max > square_norms[j] ? local_max : square_norms[j]);
+	}
+
+#pragma omp critical
+	{
+	    if (local_max > max_element) {
+		max_element = local_max;
+	    }
 	}
     }
 
-    double max_element = 0.0;
-    for (size_t j = 0; j < log_v_Sigma_star.cols(); ++j) {
-	max_element = (max_element > square_norms[j] ? max_element : square_norms[j]);
-    }
+
     double logsumexp = 0.0;
 
 #pragma omp parallel for schedule(static) reduction(+:logsumexp)
@@ -412,43 +423,54 @@ inline double get_alpha(const std::vector<double> &U_Lambda_sub_flat, const size
     }
     std::vector<double> alpha_parts(dim, 0.0);
     double alpha_parts_max = 0.0;
-#pragma omp parallel for schedule(guided) reduction(vec_double_plus:alpha_parts)
-    for (int64_t j = dim - 1; j >= 0; --j) {
-	std::vector<double> res_vec(dim, 0.0);
-	if (j != predictor_id) {
-	    double max_elem = 0.0;
+#pragma omp parallel
+    {
+	double local_max = 0.0;
+#pragma omp for schedule(guided) reduction(vec_double_plus:alpha_parts)
+	for (int64_t j = dim - 1; j >= 0; --j) {
+	    std::vector<double> res_vec(dim, 0.0);
+	    if (j != predictor_id) {
+		double max_elem = 0.0;
 
-	    size_t col_start = j * dim - j * (j - 1)/2 - j;
-	    res_vec[predictor_id] += predictor_col[j] + std::log(std::abs(U_Lambda_sub_flat[col_start + j]) + 1e-16) + predictor_col[j];
-	    max_elem = (max_elem > res_vec[predictor_id] ? max_elem : res_vec[predictor_id]);
-	    for (size_t i = (j + 1); i < dim; ++i) {
-		if (i != predictor_id) {
-		    res_vec[i] += predictor_col[i] + std::log(std::abs(U_Lambda_sub_flat[col_start + i]) + 1e-16) + predictor_col[j];
+		size_t col_start = j * dim - j * (j - 1)/2 - j;
+		res_vec[predictor_id] += predictor_col[j] + std::log(std::abs(U_Lambda_sub_flat[col_start + j]) + 1e-16) + predictor_col[j];
+		max_elem = (max_elem > res_vec[predictor_id] ? max_elem : res_vec[predictor_id]);
+		for (size_t i = (j + 1); i < dim; ++i) {
+		    if (i != predictor_id) {
+			res_vec[i] += predictor_col[i] + std::log(std::abs(U_Lambda_sub_flat[col_start + i]) + 1e-16) + predictor_col[j];
+		    }
+		    max_elem = (max_elem > res_vec[i] ? max_elem : res_vec[i]);
 		}
-		max_elem = (max_elem > res_vec[i] ? max_elem : res_vec[i]);
-	    }
 
-	    double tmp_sum = 0.0;
-	    for (size_t i = 0; i < dim; ++i) {
-		double val = std::exp(res_vec[i] - max_elem);
-		tmp_sum += val;
-		if (i != predictor_id) {
+		double tmp_sum = 0.0;
+		for (size_t i = 0; i < dim; ++i) {
+		    double val = std::exp(res_vec[i] - max_elem);
 		    tmp_sum += val;
+		    if (i != predictor_id) {
+			tmp_sum += val;
+		    }
+		}
+		alpha_parts[j] += std::log(tmp_sum) + max_elem;
+		local_max = (local_max > alpha_parts[j] ? local_max : alpha_parts[j]);
+#pragma omp critical
+		{
+		    if (local_max > alpha_parts_max) {
+			alpha_parts_max = local_max;
+		    }
 		}
 	    }
-	    alpha_parts[j] += std::log(tmp_sum) + max_elem;
-	    alpha_parts_max = (alpha_parts_max > alpha_parts[j] ? alpha_parts_max : alpha_parts[j]);
 	}
     }
 
     double alpha_sum = 0.0;
+#pragma omp parallel for schedule(static) reduction(+:alpha_sum)
     for (size_t i = 0; i < dim; ++i) {
 	if (i != predictor_id) {
 	    alpha_sum += std::exp(alpha_parts[i] - alpha_parts_max);
 	}
     }
-    double log_alpha = std::log(alpha_sum) + alpha_parts_max;
 
+    double log_alpha = std::log(alpha_sum) + alpha_parts_max;
     return log_alpha;
 }
 
@@ -545,12 +567,13 @@ inline std::vector<double> flatten_triangular(const Eigen::MatrixXd &triangular)
     return flattened;
 }
 
-inline RATEd RATE_lowrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMatrix<double> &design_matrix, const size_t n_snps, const size_t svd_rank, const double prop_var) {
+inline RATEd RATE_lowrank(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<double> &design_matrix, const size_t n_snps, const size_t svd_rank, const double prop_var) {
     // ## WARNING: Do not compile with -ffast-math
 
     Eigen::MatrixXd u;
     Eigen::MatrixXd svd_design_matrix_v;
     decompose_design_matrix(design_matrix, svd_rank, prop_var, &u, &svd_design_matrix_v);
+    design_matrix.resize(0, 0);
 
     const Eigen::VectorXd &col_means_beta = approximate_beta_means(f_draws, u, svd_design_matrix_v);
     Eigen::MatrixXd v_Sigma_star = std::move(svd_design_matrix_v*project_f_draws(f_draws, u).triangularView<Eigen::Lower>());
@@ -561,6 +584,7 @@ inline RATEd RATE_lowrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMat
     {
 	Eigen::MatrixXd Lambda = Eigen::MatrixXd::Zero(n_snps, n_snps);
 	Eigen::MatrixXd Lambda_chol = decompose_covariance_approximation(project_f_draws(f_draws, u), svd_design_matrix_v, svd_rank);
+	f_draws.resize(0, 0);
 	Lambda.template selfadjointView<Eigen::Lower>().rankUpdate(Lambda_chol);
 	Lambda_f = Lambda.triangularView<Eigen::Lower>() * v_Sigma_star;
 	flat_Lambda = flatten_triangular(Lambda);
