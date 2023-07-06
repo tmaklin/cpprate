@@ -28,11 +28,18 @@ cpprate -x design_matrix_file.csv -f nonlinear_draws_file.csv
 this will run the lowrank approximation by default. To run the fullrank approximation, use the `--fullrank` toggle (note: can be slow).
 
 ## Linear coefficients
+### Lowrank algorithm
+Running the lowrank algorithm requires projecting the linear coefficients via the design matrix. This can be accomplished by taking the product `Xt(B)`, where `B` is the `n_posterior_draws`x`n_snps` matrix containing the posterior draws and `t(X)` is the transpose of the `n_observations`x`n_snps` matrix. Supply the resulting projected coefficients and the design matrix as in the nonlinear case with
+```
+cpprate -x design_matrix_file.csv -f projected_beta_draws_file.csv
+```
+
+### Fullrank algorithm
 Supply the posterior draws for the linear coefficients as a `n_posterior_draws`x`n_snps` comma-separated matrix via the `--beta-draws` argument by running
 ```
 cpprate --beta-draws linear_coefficients_file.csv
 ```
-this will run the fullrank algorithm because the lowrank approximation is only valid for nonlinear coefficients.
+This will be slower than the lowrank approximation because the underlying model is the same as the fullrank model for nonlinear coefficients.
 
 ## Parallelization
 Add the number of threads via the `-t` argument to parallelize calculation over the number of snps. Beware: adding threads will increase the memory consumption roughly linearly but results in a roughly linear speedup.
