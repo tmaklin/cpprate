@@ -35,23 +35,18 @@
 #ifndef CPPRATE_CPPRATERES_HPP
 #define CPPRATE_CPPRATERES_HPP
 
-// TODO check if these were found
-#define EIGEN_USE_BLAS
+#include "cpprate_blas_config.hpp"
+#include "cpprate_openmp_config.hpp"
 
 #include <Eigen/SparseCore>
 
 #include "RedSVD.h"
-#include <omp.h>
 
 #include <vector>
 #include <cstddef>
 #include <cmath>
 #include <iostream>
 #include <numeric>
-
-#pragma omp declare reduction(vec_double_plus : std::vector<double> :	\
-                              std::transform(omp_out.begin(), omp_out.end(), omp_in.begin(), omp_out.begin(), std::plus<double>())) \
-                    initializer(omp_priv = decltype(omp_orig)(omp_orig.size()))
 
 inline std::vector<double> rate_from_kld(const std::vector<double> &log_kld, const double kld_sum) {
     std::vector<double> RATE(log_kld.size());

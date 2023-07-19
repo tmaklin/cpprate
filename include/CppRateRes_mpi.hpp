@@ -40,8 +40,6 @@
 #include <Eigen/SparseCore>
 #include <Eigen/Dense>
 
-#include <omp.h>
-
 #include "cpprate_mpi_config.hpp"
 
 inline RATEd RATE_lowrank_mpi(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<double> &design_matrix, const size_t n_snps, const size_t svd_rank, const double prop_var) {

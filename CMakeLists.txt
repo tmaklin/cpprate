@@ -35,10 +35,20 @@ if (OPENMP_FOUND)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_PARALLEL")
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -D_GLIBCXX_PARALLEL")
   set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -D_GLIBCXX_PARALLEL")
+  set(CPPRATE_OPENMP_SUPPORT 1)
+else()
+    set(CPPRATE_OPENMP_SUPPORT 0)
 endif()
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config/cpprate_openmp_config.hpp.in ${CMAKE_CURRENT_BINARY_DIR}/include/cpprate_openmp_config.hpp @ONLY)
 
 ## BLAS
 find_package(BLAS)
+if (BLAS_FOUND)
+  set(CPPRATE_BLAS_SUPPORT 1)
+else()
+  set(CPPRATE_BLAS_SUPPORT 0)
+endif()
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config/cpprate_blas_config.hpp.in ${CMAKE_CURRENT_BINARY_DIR}/include/cpprate_blas_config.hpp @ONLY)
 
 ### MPI
 if (CMAKE_ENABLE_MPI_SUPPORT)

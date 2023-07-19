@@ -150,7 +150,9 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
+#if defined(CPPRATE_OPENMP_SUPPORT) && (CPPRATE_OPENMP_SUPPORT) == 1
   omp_set_num_threads(args.value<size_t>('t'));
+#endif
 
   bool from_beta_draws = CmdOptionPresent(argv, argv+argc, "--beta-draws");
   bool lowrank_beta_draws = CmdOptionPresent(argv, argv+argc, "--beta-draws") && CmdOptionPresent(argv, argv+argc, "-x");
