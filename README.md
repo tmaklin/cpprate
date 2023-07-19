@@ -20,6 +20,7 @@ make -j
 ```
 
 # Usage
+Input files can optionally be compressed with gzip/bzip2/xz. The format is detected automatically.
 ## Nonlinear coefficients
 Supply the design matrix as a `n_observations`x`n_snps` comma-separated matrix via the `-x` argument and the nonlinear `n_posterior_draws`x`n_observations` comma-separated matrix via the `-f` argument by running
 ```

@@ -38,6 +38,8 @@
 #include <string>
 #include <cstddef>
 
+#include "bxzstr.hpp"
+
 #include "CppRateRes.hpp"
 #include "CppRateRes_mpi.hpp"
 
@@ -99,7 +101,7 @@ int main(int argc, char* argv[]) {
   size_t n_f_draws = args.value<size_t>('m');
 
   std::vector<double> f_draws;
-  std::ifstream in(args.value<std::string>('f'));
+  bxz::ifstream in(args.value<std::string>('f'));
   std::string line;
   while (std::getline(in, line)) {
       std::stringstream parts(line);
@@ -113,7 +115,7 @@ int main(int argc, char* argv[]) {
   f_draws_mat = std::move(vec_to_dense_matrix(f_draws, n_f_draws, n_obs));
 
   std::vector<bool> X;
-  std::ifstream in2(args.value<std::string>('x'));
+  bxz::ifstream in2(args.value<std::string>('x'));
   while (std::getline(in2, line)) {
       std::stringstream parts(line);
       std::string part;

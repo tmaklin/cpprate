@@ -39,6 +39,8 @@
 #include <cstddef>
 #include <algorithm>
 
+#include "bxzstr.hpp"
+
 #include "CppRateRes.hpp"
 
 bool CmdOptionPresent(char **begin, char **end, const std::string &option) {
@@ -142,13 +144,13 @@ int main(int argc, char* argv[]) {
   Eigen::MatrixXd posterior_draws;
   Eigen::SparseMatrix<double> design_matrix;
   if (!from_beta_draws) {
-      std::ifstream in(args.value<std::string>('f'));
-      std::ifstream in2(args.value<std::string>('x'));
+      bxz::ifstream in(args.value<std::string>('f'));
+      bxz::ifstream in2(args.value<std::string>('x'));
       read_nonlinear(&n_snps, &in, &in2, &posterior_draws, &design_matrix);
       in.close();
       in2.close();
   } else {
-      std::ifstream in(args.value<std::string>("beta-draws"));
+      bxz::ifstream in(args.value<std::string>("beta-draws"));
       read_beta_draws(&n_snps, &in, &posterior_draws);
       in.close();
   }
