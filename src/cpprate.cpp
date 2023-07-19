@@ -52,6 +52,7 @@ bool parse_args(int argc, char* argv[], cxxargs::Arguments &args) {
     args.add_short_argument<std::string>('x', "design matrix (comma separated)");
     args.add_long_argument<std::string>("beta-draws", "beta-draws file (comma separated)");
     args.add_short_argument<size_t>('t', "Number of threads to use (default: 1)", 1);
+    args.add_long_argument<std::vector<size_t>>("ids-to-test", "Comma-separated list of variable ids to test (default: test all)", std::vector<size_t>());
     args.add_long_argument<double>("prop-var", "Proportion of variance to explain in lowrank factorization (default: 100%)", 1.1);
     args.add_long_argument<size_t>("low-rank", "Rank of the low-rank factorization (default: min(design_matrix.rows(), design_matrix.cols()))", 0);
     args.add_long_argument<bool>("fullrank", "Run fullrank algorithm (default: false)", false);
@@ -187,19 +188,22 @@ int main(int argc, char* argv[]) {
       design_matrix_file.close();
   }
 
+
+  // TODO check that the snp ids in ids-to-test don't exceed the total n_snps or under 0
+
   RATEd res;
   if (args.value<bool>("fullrank") && !from_beta_draws) {
-      res = RATE_fullrank(posterior_draws, design_matrix, n_snps);
+      res = RATE_fullrank(posterior_draws, design_matrix, args.value<std::vector<size_t>>("ids-to-test"), n_snps);
   } else if (!from_beta_draws) {
       size_t svd_rank = args.value<size_t>("low-rank") == 0 ? std::min(design_matrix.rows(), design_matrix.cols()) : args.value<size_t>("low-rank");
-      res = RATE_lowrank(posterior_draws, design_matrix, n_snps, svd_rank, args.value<double>("prop-var"));
+      res = RATE_lowrank(posterior_draws, design_matrix, args.value<std::vector<size_t>>("ids-to-test"), n_snps, svd_rank, args.value<double>("prop-var"));
   } else if (from_beta_draws && lowrank_beta_draws) {
       // Calculate predictions = X*B' to use the lowrank approximation
       size_t svd_rank = args.value<size_t>("low-rank") == 0 ? std::min(design_matrix.rows(), design_matrix.cols()) : args.value<size_t>("low-rank");
       Eigen::MatrixXd predictions = posterior_draws * design_matrix.transpose();
-      res = RATE_lowrank(predictions, design_matrix, n_snps, svd_rank, args.value<double>("prop-var"));
+      res = RATE_lowrank(predictions, design_matrix, args.value<std::vector<size_t>>("ids-to-test"), n_snps, svd_rank, args.value<double>("prop-var"));
   } else if (from_beta_draws && args.value<bool>("fullrank")) {
-      res = RATE_beta_draws(posterior_draws, n_snps);
+      res = RATE_beta_draws(posterior_draws, args.value<std::vector<size_t>>("ids-to-test"), n_snps);
   }
 
   std::cout << "#ESS: " << res.ESS << '\n';

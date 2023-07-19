@@ -567,7 +567,7 @@ inline std::vector<double> flatten_triangular(const Eigen::MatrixXd &triangular)
     return flattened;
 }
 
-inline RATEd RATE_lowrank(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<double> &design_matrix, const size_t n_snps, const size_t svd_rank, const double prop_var) {
+inline RATEd RATE_lowrank(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<double> &design_matrix, const std::vector<size_t> &ids_to_test, const size_t n_snps, const size_t svd_rank, const double prop_var) {
     // ## WARNING: Do not compile with -ffast-math
 
     Eigen::MatrixXd u;
@@ -611,15 +611,23 @@ inline RATEd RATE_lowrank(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<double> 
 
     std::vector<double> log_KLD(n_snps);
 
+    if (ids_to_test.size() == 0) {
 #pragma omp parallel for schedule(static)
-    for (size_t i = 0; i < n_snps; ++i) {
-	log_KLD[i] = dropped_predictor_kld_lowrank(flat_Lambda, Lambda_f, v_Sigma_star, svd_design_matrix_v.col(i), col_means_beta[i], i);
+	for (size_t i = 0; i < n_snps; ++i) {
+	    log_KLD[i] = dropped_predictor_kld_lowrank(flat_Lambda, Lambda_f, v_Sigma_star, svd_design_matrix_v.col(i), col_means_beta[i], i);
+	}
+    } else {
+#pragma omp parallel for schedule(static)
+	for (size_t i = 0; i < ids_to_test.size(); ++i) {
+	    size_t snp_id = ids_to_test[i] - 1;
+	    log_KLD[snp_id] = dropped_predictor_kld_lowrank(flat_Lambda, Lambda_f, v_Sigma_star, svd_design_matrix_v.col(snp_id), col_means_beta[snp_id], snp_id);
+	}
     }
 
     return RATEd(log_KLD);
 }
 
-inline RATEd RATE_beta_draws(const Eigen::MatrixXd &beta_draws, const size_t n_snps) {
+inline RATEd RATE_beta_draws(const Eigen::MatrixXd &beta_draws, const std::vector<size_t> &ids_to_test, const size_t n_snps) {
     // ## WARNING: Do not compile with -ffast-math
 
     std::vector<double> flat_lambda;
@@ -640,20 +648,29 @@ inline RATEd RATE_beta_draws(const Eigen::MatrixXd &beta_draws, const size_t n_s
 
     std::vector<double> log_KLD(n_snps, 0.0);
 
+    if (ids_to_test.size() == 0) {
 #pragma omp parallel for schedule(static)
-    for (size_t i = 0; i < n_snps; ++i) {
-	const std::vector<double> &cov_beta_col = get_col(flat_cov_beta, dim, dim, i);
-	log_KLD[i] = dropped_predictor_kld(flat_lambda, cov_beta_col, col_means_beta[i], i);
+	for (size_t i = 0; i < n_snps; ++i) {
+	    const std::vector<double> &cov_beta_col = get_col(flat_cov_beta, dim, dim, i);
+	    log_KLD[i] = dropped_predictor_kld(flat_lambda, cov_beta_col, col_means_beta[i], i);
+	}
+    } else {
+#pragma omp parallel for schedule(static)
+	for (size_t i = 0; i < ids_to_test.size(); ++i) {
+	    const std::vector<double> &cov_beta_col = get_col(flat_cov_beta, dim, dim, i);
+	    size_t snp_id = ids_to_test[i] - 1;
+	    log_KLD[snp_id] = dropped_predictor_kld(flat_lambda, cov_beta_col, col_means_beta[snp_id], snp_id);
+	}
     }
 
     return RATEd(log_KLD);
 }
 
-inline RATEd RATE_fullrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMatrix<double> &design_matrix, const size_t n_snps) {
+inline RATEd RATE_fullrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMatrix<double> &design_matrix, const std::vector<size_t> &ids_to_test, const size_t n_snps) {
     // ## WARNING: Do not compile with -ffast-math
     const Eigen::MatrixXd &beta_draws = nonlinear_coefficients(design_matrix, f_draws);
 
-    const RATEd &res = RATE_beta_draws(beta_draws, n_snps);
+    const RATEd &res = RATE_beta_draws(beta_draws, ids_to_test, n_snps);
 
     return res;
 }
