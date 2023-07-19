@@ -42,12 +42,19 @@ cpprate --beta-draws linear_coefficients_file.csv
 ```
 This will be slower than the lowrank approximation because the underlying model is the same as the fullrank model for nonlinear coefficients.
 
-## Only test some variables
+## Only test certain variables
 Testing all variables at once may take a long time and/or a lot of memory. To run the model on only some variables at a time, call
 ```
 cpprate -x design_matrix_file.csv --beta-draws linear_coefficients_file.tsv --ids-to-test 1,2,3
 ```
 This will test the first, second, and third variable. Results from several runs may be merged by merging the KLD column in the results and recalculating the RATE column as `KLD[i]/sum(KLD)`.
+
+## Test a range of variables
+A range of variable ids may be tested by calling
+```
+cpprate -x design_matrix_file.csv --beta-draws linear_coefficients_file.tsv --id-start 5 --id-end 8
+```
+This will test the 5th, 6th, 7th, and 8th variables. Results from several runs may be merged by merging the KLD column in the results and recalculating the RATE column as `KLD[i]/sum(KLD)`.
 
 ## Parallelization
 Add the number of threads via the `-t` argument to parallelize calculation over the number of snps. Beware: adding threads will increase the memory consumption roughly linearly but results in a roughly linear speedup.

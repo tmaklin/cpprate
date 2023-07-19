@@ -567,7 +567,7 @@ inline std::vector<double> flatten_triangular(const Eigen::MatrixXd &triangular)
     return flattened;
 }
 
-inline RATEd RATE_lowrank(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<double> &design_matrix, const std::vector<size_t> &ids_to_test, const size_t n_snps, const size_t svd_rank, const double prop_var) {
+inline RATEd RATE_lowrank(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<double> &design_matrix, const std::vector<size_t> &ids_to_test, const size_t id_start, const size_t id_end, const size_t n_snps, const size_t svd_rank, const double prop_var) {
     // ## WARNING: Do not compile with -ffast-math
 
     Eigen::MatrixXd u;
@@ -613,7 +613,7 @@ inline RATEd RATE_lowrank(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<double> 
 
     if (ids_to_test.size() == 0) {
 #pragma omp parallel for schedule(static)
-	for (size_t i = 0; i < n_snps; ++i) {
+	for (size_t i = id_start; i < id_end; ++i) {
 	    log_KLD[i] = dropped_predictor_kld_lowrank(flat_Lambda, Lambda_f, v_Sigma_star, svd_design_matrix_v.col(i), col_means_beta[i], i);
 	}
     } else {
@@ -627,7 +627,7 @@ inline RATEd RATE_lowrank(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<double> 
     return RATEd(log_KLD);
 }
 
-inline RATEd RATE_beta_draws(const Eigen::MatrixXd &beta_draws, const std::vector<size_t> &ids_to_test, const size_t n_snps) {
+inline RATEd RATE_beta_draws(const Eigen::MatrixXd &beta_draws, const std::vector<size_t> &ids_to_test, const size_t id_start, const size_t id_end, const size_t n_snps) {
     // ## WARNING: Do not compile with -ffast-math
 
     std::vector<double> flat_lambda;
@@ -650,7 +650,7 @@ inline RATEd RATE_beta_draws(const Eigen::MatrixXd &beta_draws, const std::vecto
 
     if (ids_to_test.size() == 0) {
 #pragma omp parallel for schedule(static)
-	for (size_t i = 0; i < n_snps; ++i) {
+	for (size_t i = id_start; i < id_end; ++i) {
 	    const std::vector<double> &cov_beta_col = get_col(flat_cov_beta, dim, dim, i);
 	    log_KLD[i] = dropped_predictor_kld(flat_lambda, cov_beta_col, col_means_beta[i], i);
 	}
@@ -666,11 +666,11 @@ inline RATEd RATE_beta_draws(const Eigen::MatrixXd &beta_draws, const std::vecto
     return RATEd(log_KLD);
 }
 
-inline RATEd RATE_fullrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMatrix<double> &design_matrix, const std::vector<size_t> &ids_to_test, const size_t n_snps) {
+inline RATEd RATE_fullrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMatrix<double> &design_matrix, const std::vector<size_t> &ids_to_test, const size_t id_start, const size_t id_end, const size_t n_snps) {
     // ## WARNING: Do not compile with -ffast-math
     const Eigen::MatrixXd &beta_draws = nonlinear_coefficients(design_matrix, f_draws);
 
-    const RATEd &res = RATE_beta_draws(beta_draws, ids_to_test, n_snps);
+    const RATEd &res = RATE_beta_draws(beta_draws, ids_to_test, id_start, id_end, n_snps);
 
     return res;
 }
