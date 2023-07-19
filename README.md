@@ -30,9 +30,9 @@ this will run the lowrank approximation by default. To run the fullrank approxim
 
 ## Linear coefficients
 ### Lowrank algorithm
-Running the lowrank algorithm requires projecting the linear coefficients via the design matrix. This can be accomplished by taking the product `Xt(B)`, where `B` is the `n_posterior_draws`x`n_snps` matrix containing the posterior draws and `t(B)` is the transpose of the matrix `B`. Supply the resulting projected coefficients and the design matrix as in the nonlinear case with
+Supply posterior draws for the linear coefficients as a `n_posterior_draws`x`n_snps` comma-separated matrix via the `--beta-draws` argument and run
 ```
-cpprate -x design_matrix_file.csv -f projected_beta_draws_file.csv
+cpprate -x design_matrix_file.csv --beta-draws linear_coefficients_file.tsv
 ```
 
 ### Fullrank algorithm
