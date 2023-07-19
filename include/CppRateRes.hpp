@@ -604,7 +604,7 @@ inline RATEd RATE_lowrank(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<double> 
 
     svd_design_matrix_v.transposeInPlace();
 
-    std::vector<double> log_KLD(n_snps);
+    std::vector<double> log_KLD(n_snps, -36.84136); // log(1e-16) = -36.84136
 
     if (ids_to_test.size() == 0) {
 #pragma omp parallel for schedule(static)
