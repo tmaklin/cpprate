@@ -15,7 +15,7 @@ Build the `cpprate` executable with
 ```
 mkdir build
 cd build
-cmake -DMCAKE_BUILD_EXECUTABLE=1 ..
+cmake -DCMAKE_BUILD_EXECUTABLE=1 ..
 make -j
 ```
 
@@ -67,7 +67,7 @@ Build tests with
 ```
 mkdir build
 cd build
-cmake -DMCAKE_BUILD_TESTS=1 ..
+cmake -DCMAKE_BUILD_TESTS=1 ..
 make -j
 ```
 
