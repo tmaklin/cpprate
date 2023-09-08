@@ -218,7 +218,7 @@ int main(int argc, char* argv[]) {
       Eigen::MatrixXd predictions = posterior_draws * design_matrix.transpose();
       res = RATE_lowrank(predictions, design_matrix, args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_snps, svd_rank, args.value<double>("prop-var"), n_threads, n_threads_per_snp);
   } else if (from_beta_draws && args.value<bool>("fullrank")) {
-      res = RATE_beta_draws(posterior_draws, args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_snps);
+      res = RATE_beta_draws(posterior_draws, args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_snps, n_threads, n_threads_per_snp);
   }
 
   std::cout << "#ESS: " << res.ESS << '\n';
