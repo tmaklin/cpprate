@@ -8,7 +8,7 @@ executable is also provided, see instructions below for compiling.
 ## Compiling the cpprate executable from source
 ### Dependencies
 - cmake >= v3.1
-- C++11 compliant compiler
+- C++17 compliant compiler
 - git >= v2.0.0
 
 Build the `cpprate` executable with
