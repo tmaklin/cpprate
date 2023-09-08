@@ -157,6 +157,11 @@ int main(int argc, char* argv[]) {
 #if defined(CPPRATE_OPENMP_SUPPORT) && (CPPRATE_OPENMP_SUPPORT) == 1
   // Use all available threads to do the linear algebra
   omp_set_num_threads(n_threads * n_threads_per_snp);
+#else
+  // Warn about ignored argument
+  if (n_threads_per_snp > 1) {
+      std::cerr << "WARNING: the `--n-threads-per-snp` argument is ignored (cpprate was compiled without OpenMP support)." << std::endl;
+  }
 #endif
 
   bool from_beta_draws = CmdOptionPresent(argv, argv+argc, "--beta-draws");
