@@ -47,6 +47,10 @@
 #include <cmath>
 #include <iostream>
 #include <numeric>
+#include <thread>
+#include <future>
+
+#include "BS_thread_pool.hpp"
 
 inline std::vector<double> rate_from_kld(const std::vector<double> &log_kld, const double kld_sum) {
     std::vector<double> RATE(log_kld.size());
@@ -479,8 +483,14 @@ inline double dropped_predictor_kld(const std::vector<double> &flat_lambda, cons
     return std::log(0.5) + log_m + log_alpha + log_m;
 }
 
-inline double dropped_predictor_kld_lowrank(const std::vector<double> &flat_Lambda, const Eigen::MatrixXd &log_f_Lambda, const Eigen::MatrixXd &log_v_Sigma_star, const Eigen::VectorXd &svd_v_col, const double mean_beta, const size_t predictor_id) {
+inline double dropped_predictor_kld_lowrank(const std::vector<double> &flat_Lambda, const Eigen::MatrixXd &log_f_Lambda, const Eigen::MatrixXd &log_v_Sigma_star, const Eigen::VectorXd &svd_v_col, const double mean_beta, const size_t predictor_id, const size_t n_threads = 1) {
     // TODO: tests
+
+#if defined(CPPRATE_OPENMP_SUPPORT) && (CPPRATE_OPENMP_SUPPORT) == 1
+  // Use `n_threads` within each task
+    omp_set_num_threads(n_threads);
+#endif
+
     const std::vector<double> &flat_U_Lambda_sub = sherman_r_lowrank(flat_Lambda, log_f_Lambda, log_v_Sigma_star, svd_v_col);
 
     size_t dim = log_f_Lambda.rows();
@@ -562,7 +572,7 @@ inline std::vector<double> flatten_triangular(const Eigen::MatrixXd &triangular)
     return flattened;
 }
 
-inline RATEd RATE_lowrank(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<double> &design_matrix, const std::vector<size_t> &ids_to_test, const size_t id_start, const size_t id_end, const size_t n_snps, const size_t svd_rank, const double prop_var) {
+inline RATEd RATE_lowrank(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<double> &design_matrix, const std::vector<size_t> &ids_to_test, const size_t id_start, const size_t id_end, const size_t n_snps, const size_t svd_rank, const double prop_var, const size_t n_ranks = 1, const size_t n_threads = 1) {
     // ## WARNING: Do not compile with -ffast-math
 
     Eigen::MatrixXd u;
@@ -606,16 +616,23 @@ inline RATEd RATE_lowrank(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<double> 
 
     std::vector<double> log_KLD(n_snps, -36.84136); // log(1e-16) = -36.84136
 
-    if (ids_to_test.size() == 0) {
-#pragma omp parallel for schedule(static)
-	for (size_t i = id_start; i < id_end; ++i) {
-	    log_KLD[i] = dropped_predictor_kld_lowrank(flat_Lambda, Lambda_f, v_Sigma_star, svd_design_matrix_v.col(i), col_means_beta[i], i);
+    BS::thread_pool pool(n_ranks);
+
+    bool test_in_order = ids_to_test.size() == 0;
+    size_t i = (test_in_order ? id_start : 0);
+    while (i < (test_in_order ? id_end : ids_to_test.size())) {
+	std::vector<std::future<double>> thread_futures;
+	size_t snp_id = (test_in_order ? i : ids_to_test[i]);
+	for (size_t thread_id = 0; thread_id < n_ranks && i < (test_in_order ? id_end : ids_to_test.size()); ++thread_id) {
+	    thread_futures.emplace_back(pool.submit(dropped_predictor_kld_lowrank,
+						    flat_Lambda, Lambda_f, v_Sigma_star, svd_design_matrix_v.col(snp_id), col_means_beta[snp_id], snp_id, n_threads
+						    ));
+	    ++i;
+	    snp_id = (test_in_order ? i : ids_to_test[i]);
 	}
-    } else {
-#pragma omp parallel for schedule(static)
-	for (size_t i = 0; i < ids_to_test.size(); ++i) {
-	    size_t snp_id = ids_to_test[i] - 1;
-	    log_KLD[snp_id] = dropped_predictor_kld_lowrank(flat_Lambda, Lambda_f, v_Sigma_star, svd_design_matrix_v.col(snp_id), col_means_beta[snp_id], snp_id);
+	for(size_t thread_id = 0; thread_id < thread_futures.size(); ++thread_id) {
+	    size_t place_id = (test_in_order ? snp_id - (thread_futures.size() - thread_id) : ids_to_test[i - (thread_futures.size() - thread_id)]);
+	    log_KLD[place_id] = thread_futures[thread_id].get();
 	}
     }
 

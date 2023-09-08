@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.1)
 project(cpprate)
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 
 ## Determine build type
 if(NOT CMAKE_BUILD_TYPE)
@@ -233,3 +233,4 @@ include_directories(${CMAKE_CXXARGS_HEADERS})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include
                     ${CMAKE_CURRENT_BINARY_DIR}/include)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/external/RedSVD)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/external/bs_thread_pool/include)

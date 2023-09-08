@@ -51,7 +51,8 @@ bool parse_args(int argc, char* argv[], cxxargs::Arguments &args) {
     args.add_short_argument<std::string>('f', "f-draws file (comma separated)");
     args.add_short_argument<std::string>('x', "design matrix (comma separated)");
     args.add_long_argument<std::string>("beta-draws", "beta-draws file (comma separated)");
-    args.add_short_argument<size_t>('t', "Number of threads to use (default: 1)", 1);
+    args.add_short_argument<size_t>('t', "Number of SNPs to process in parallel (default: 1)", 1);
+    args.add_long_argument<size_t>("threads-per-snp", "Number of threads to use per SNP (default: 1)", 1);
     args.add_long_argument<std::vector<size_t>>("ids-to-test", "Comma-separated list of variable ids to test (optional)", std::vector<size_t>());
     args.add_long_argument<size_t>("id-start", "Test variables with id equal to or higher than `id-start` (optional)", 0);
     args.add_long_argument<size_t>("id-end", "Test variables with id equal to or less than `id-end` (optional)", 0);
@@ -150,8 +151,12 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
+  size_t n_threads = args.value<size_t>('t');
+  size_t n_threads_per_snp = args.value<size_t>("threads-per-snp");
+
 #if defined(CPPRATE_OPENMP_SUPPORT) && (CPPRATE_OPENMP_SUPPORT) == 1
-  omp_set_num_threads(args.value<size_t>('t'));
+  // Use all available threads to do the linear algebra
+  omp_set_num_threads(n_threads * n_threads_per_snp);
 #endif
 
   bool from_beta_draws = CmdOptionPresent(argv, argv+argc, "--beta-draws");
@@ -206,12 +211,12 @@ int main(int argc, char* argv[]) {
       res = RATE_fullrank(posterior_draws, design_matrix, args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_snps);
   } else if (!from_beta_draws) {
       size_t svd_rank = args.value<size_t>("low-rank") == 0 ? std::min(design_matrix.rows(), design_matrix.cols()) : args.value<size_t>("low-rank");
-      res = RATE_lowrank(posterior_draws, design_matrix, args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_snps, svd_rank, args.value<double>("prop-var"));
+      res = RATE_lowrank(posterior_draws, design_matrix, args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_snps, svd_rank, args.value<double>("prop-var"), n_threads, n_threads_per_snp);
   } else if (from_beta_draws && lowrank_beta_draws) {
       // Calculate predictions = X*B' to use the lowrank approximation
       size_t svd_rank = args.value<size_t>("low-rank") == 0 ? std::min(design_matrix.rows(), design_matrix.cols()) : args.value<size_t>("low-rank");
       Eigen::MatrixXd predictions = posterior_draws * design_matrix.transpose();
-      res = RATE_lowrank(predictions, design_matrix, args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_snps, svd_rank, args.value<double>("prop-var"));
+      res = RATE_lowrank(predictions, design_matrix, args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_snps, svd_rank, args.value<double>("prop-var"), n_threads, n_threads_per_snp);
   } else if (from_beta_draws && args.value<bool>("fullrank")) {
       res = RATE_beta_draws(posterior_draws, args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_snps);
   }

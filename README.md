@@ -59,7 +59,8 @@ This will test the 5th, 6th, 7th, and 8th variables. Results from several runs m
 ## Parallelization
 Add the number of threads via the `-t` argument to parallelize calculation over the number of snps. Beware: adding threads will increase the memory consumption roughly linearly but results in a roughly linear speedup.
 
-For more fine-grained parallelization over both the number of snps and within each snp, use the MPI implementation, where the `-t` argument adds threads for each MPI process parallelizing calculation over the snps. Note that adding threads within each snp is only useful for very large inputs.
+For more fine-grained parallelization over both the number of snps and within each snp, use the `--threads-per-snp` argument to add threads for each thread supplied via the `-t` argument. Note that adding threads within each snp is only useful for very large inputs.
+
 
 # Development
 ## Building tests
