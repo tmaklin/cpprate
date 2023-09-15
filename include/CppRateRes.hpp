@@ -426,34 +426,34 @@ inline double get_alpha(const std::vector<double> &log_abs_flat_lambda, const st
     std::vector<double> alpha_parts(dim, 0.0);
     double alpha_parts_max = 0.0;
 #pragma omp parallel for schedule(guided) reduction(vec_double_plus:alpha_parts) reduction(max:alpha_parts_max)
-	for (int64_t j = dim - 1; j >= 0; --j) {
-	    std::vector<double> res_vec(dim, 0.0);
-	    if (j != predictor_id) {
-		double max_elem = 0.0;
-		size_t col_start = j * dim - j * (j - 1)/2 - j;
+    for (int64_t j = dim - 1; j >= 0; --j) {
+	std::vector<double> res_vec(dim, 0.0);
+	if (j != predictor_id) {
+	    double max_elem = 0.0;
+	    size_t col_start = j * dim - j * (j - 1)/2 - j;
 
-		res_vec[predictor_id] += predictor_col[j] + predictor_col[j] + predictor_col[j];
-		max_elem = (max_elem > res_vec[predictor_id] ? max_elem : res_vec[predictor_id]);
+	    res_vec[predictor_id] += predictor_col[j] + predictor_col[j] + predictor_col[j];
+	    max_elem = (max_elem > res_vec[predictor_id] ? max_elem : res_vec[predictor_id]);
 
-		for (size_t i = (j + 1); i < dim; ++i) {
-		    if (i != predictor_id) {
-			res_vec[i] += predictor_col[i] + get_U_val(log_u, log_abs_flat_lambda[col_start + j], j, i) + predictor_col[j];
-		    }
-		    max_elem = (max_elem > res_vec[i] ? max_elem : res_vec[i]);
+	    for (size_t i = (j + 1); i < dim; ++i) {
+		if (i != predictor_id) {
+		    res_vec[i] += predictor_col[i] + get_U_val(log_u, log_abs_flat_lambda[col_start + j], j, i) + predictor_col[j];
 		}
-
-		double tmp_sum = 0.0;
-		for (size_t i = 0; i < dim; ++i) {
-		    double val = std::exp(res_vec[i] - max_elem);
-		    tmp_sum += val;
-		    if (i != predictor_id) {
-			tmp_sum += val;
-		    }
-		}
-		alpha_parts[j] += std::log(tmp_sum) + max_elem;
-		alpha_parts_max = (alpha_parts_max > alpha_parts[j] ? alpha_parts_max : alpha_parts[j]);
+		max_elem = (max_elem > res_vec[i] ? max_elem : res_vec[i]);
 	    }
+
+	    double tmp_sum = 0.0;
+	    for (size_t i = 0; i < dim; ++i) {
+		double val = std::exp(res_vec[i] - max_elem);
+		tmp_sum += val;
+		if (i != predictor_id) {
+		    tmp_sum += val;
+		}
+	    }
+	    alpha_parts[j] += std::log(tmp_sum) + max_elem;
+	    alpha_parts_max = (alpha_parts_max > alpha_parts[j] ? alpha_parts_max : alpha_parts[j]);
 	}
+    }
 
     double alpha_sum = 0.0;
 #pragma omp parallel for schedule(static) reduction(+:alpha_sum)
