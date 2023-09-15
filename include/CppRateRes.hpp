@@ -49,6 +49,7 @@
 #include <numeric>
 #include <thread>
 #include <future>
+#include <functional>
 
 #include "BS_thread_pool.hpp"
 
@@ -199,7 +200,7 @@ inline double create_denominator(const Eigen::MatrixXd &log_v_Sigma_star, const 
 
     logsumexp += std::log(logsumexp) + max_element;
 
-    return std::exp(logsumexp);
+    return std::exp(logsumexp - 0.6931472);
 }
 
 inline std::vector<double> create_log_nominator(const Eigen::MatrixXd &log_f_Lambda, const Eigen::VectorXd &log_svd_v_col) {
@@ -217,10 +218,14 @@ inline std::vector<double> create_log_nominator(const Eigen::MatrixXd &log_f_Lam
     return tmp;
 }
 
-inline std::vector<double> sherman_r_lowrank(const std::vector<double> &log_flat_Lambda, const Eigen::MatrixXd &log_f_Lambda, const Eigen::MatrixXd &log_v_Sigma_star, const Eigen::VectorXd &log_svd_v_col, double *log_denominator) {
+inline std::vector<double> sherman_r_lowrank(const std::vector<double> &log_flat_Lambda, const Eigen::MatrixXd &log_f_Lambda, const Eigen::MatrixXd &log_v_Sigma_star, const Eigen::VectorXd &log_svd_v_col) {
     // TODO: tests
-    *log_denominator = std::log1p(create_denominator(log_v_Sigma_star, log_svd_v_col));
-    const std::vector<double> &tmp = create_log_nominator(log_f_Lambda, log_svd_v_col);
+    const double log_denominator = std::log1p(create_denominator(log_v_Sigma_star, log_svd_v_col));
+    std::vector<double> tmp = std::move(create_log_nominator(log_f_Lambda, log_svd_v_col));
+    for (size_t i = 0; i < tmp.size(); ++i) {
+	tmp[i] -= log_denominator;
+    }
+
     return tmp;
 }
 
@@ -395,93 +400,20 @@ inline Eigen::MatrixXd create_lambda(const Eigen::MatrixXd &U) {
     return tmp;
 }
 
-inline double get_U_val(const std::vector<double> &log_abs_flat_lambda, const std::vector<double> &log_u, const size_t dim, const size_t i, const size_t j) {
+inline double get_U_val_lowrank(const std::vector<double> &tmp, const double log_abs_flat_lambda, const size_t i, const size_t j) {
+    // TODO tests
+    return log_abs_flat_lambda/(tmp[i] + tmp[j]);
+}
+
+inline double get_U_val_fullrank(const std::vector<double> &log_u, const double log_abs_flat_lambda, const size_t i, const size_t j) {
     // TODO tests
     // Construct log_U_Lambda_sub_flat
-    size_t col_start = j * dim - j * (j - 1)/2 - j;
-    double log_outer_prod = log_u[i] + log_u[j];
-    double log_val = log_outer_prod + log_abs_flat_lambda[col_start + 1];
-    return log_abs_flat_lambda[col_start + 1]/(log_abs_flat_lambda[col_start + 1] + log_val - std::log1p(std::exp(log_val))) + 1e-16;
+    double log_val = log_u[i] + log_u[j] + log_abs_flat_lambda;
+    return log_abs_flat_lambda/(log_abs_flat_lambda + log_val - std::log1p(std::exp(log_val)));
 }
 
-inline double get_alpha2(const std::vector<double> &log_abs_flat_lambda, const std::vector<double> &log_u, const size_t dim, const size_t predictor_id) {
-    // TODO tests
-    double alpha = 0.0;
-    std::vector<double> predictor_col(dim);
-
-#pragma omp parallel for schedule(static)
-    for (size_t i = predictor_id; i < dim; ++i) {
-	size_t pos_in_lower_tri = predictor_id * dim + i - predictor_id * (predictor_id - 1)/2 - predictor_id;
-	predictor_col[i] = get_U_val(log_abs_flat_lambda, log_u, dim, i, i);
-    }
-
-#pragma omp parallel for schedule(static)
-    for (size_t i = 0; i < predictor_id; ++i) {
-	size_t pos_in_lower_tri = i * dim + predictor_id - i * (i - 1)/2 - i;
-	predictor_col[i] = get_U_val(log_abs_flat_lambda, log_u, dim, i, i);
-    }
-
-    std::vector<double> alpha_parts(dim, 0.0);
-    double alpha_parts_max = 0.0;
-#pragma omp parallel
-    {
-	double local_max = 0.0;
-#pragma omp for schedule(guided) reduction(vec_double_plus:alpha_parts)
-	for (int64_t j = dim - 1; j >= 0; --j) {
-	    std::vector<double> res_vec(dim, 0.0);
-	    if (j != predictor_id) {
-		double max_elem = 0.0;
-
-		size_t col_start = j * dim - j * (j - 1)/2 - j;
-
-		res_vec[predictor_id] += predictor_col[j] + get_U_val(log_abs_flat_lambda, log_u, dim, j, j) + predictor_col[j];
-		max_elem = (max_elem > res_vec[predictor_id] ? max_elem : res_vec[predictor_id]);
-		for (size_t i = (j + 1); i < dim; ++i) {
-		    if (i != predictor_id) {
-			res_vec[i] += predictor_col[i] + get_U_val(log_abs_flat_lambda, log_u, dim, j, i) + predictor_col[j];
-		    }
-		    max_elem = (max_elem > res_vec[i] ? max_elem : res_vec[i]);
-		}
-
-		double tmp_sum = 0.0;
-		for (size_t i = 0; i < dim; ++i) {
-		    double val = std::exp(res_vec[i] - max_elem);
-		    tmp_sum += val;
-		    if (i != predictor_id) {
-			tmp_sum += val;
-		    }
-		}
-		alpha_parts[j] += std::log(tmp_sum) + max_elem;
-		local_max = (local_max > alpha_parts[j] ? local_max : alpha_parts[j]);
-#pragma omp critical
-		{
-		    if (local_max > alpha_parts_max) {
-			alpha_parts_max = local_max;
-		    }
-		}
-	    }
-	}
-    }
-
-    double alpha_sum = 0.0;
-#pragma omp parallel for schedule(static) reduction(+:alpha_sum)
-    for (size_t i = 0; i < dim; ++i) {
-	if (i != predictor_id) {
-	    alpha_sum += std::exp(alpha_parts[i] - alpha_parts_max);
-	}
-    }
-
-    double log_alpha = std::log(alpha_sum) + alpha_parts_max;
-    return log_alpha;
-}
-
-inline double get_U_val2(const std::vector<double> &log_flat_Lambda, const std::vector<double> &tmp, const double log_denominator, const size_t dim, const size_t i, const size_t j) {
-    // TODO tests
-    size_t col_start = j * dim - j * (j - 1)/2 - j;
-    return log_flat_Lambda[col_start + i]/(tmp[i] + tmp[j] - log_denominator);
-}
-
-inline double get_alpha(const std::vector<double> &log_flat_Lambda, const std::vector<double> &tmp, const double log_denominator,
+inline double get_alpha(const std::vector<double> &log_abs_flat_lambda, const std::vector<double> &log_u,
+			const std::function<double(const std::vector<double>, const double, const size_t, const size_t)> &get_U_val,
 			const size_t dim, const size_t predictor_id) {
     // TODO tests
     double alpha = 0.0;
@@ -489,16 +421,15 @@ inline double get_alpha(const std::vector<double> &log_flat_Lambda, const std::v
 
 #pragma omp parallel for schedule(static)
     for (size_t i = predictor_id; i < dim; ++i) {
-	size_t pos_in_lower_tri = predictor_id * dim + i - predictor_id * (predictor_id - 1)/2 - predictor_id;
-	predictor_col[i] = get_U_val2(log_flat_Lambda, tmp, log_denominator, dim, i, i);
+	size_t col_start = i * dim - i * (i - 1)/2 - i;
+	predictor_col[i] = get_U_val(log_u, log_abs_flat_lambda[col_start + i], i, i);
     }
 
 #pragma omp parallel for schedule(static)
     for (size_t i = 0; i < predictor_id; ++i) {
-	size_t pos_in_lower_tri = i * dim + predictor_id - i * (i - 1)/2 - i;
-	predictor_col[i] = get_U_val2(log_flat_Lambda, tmp, log_denominator, dim, i, i);
+	size_t col_start = i * dim - i * (i - 1)/2 - i;
+	predictor_col[i] = get_U_val(log_u, log_abs_flat_lambda[col_start + i], i, i);
     }
-
 
     std::vector<double> alpha_parts(dim, 0.0);
     double alpha_parts_max = 0.0;
@@ -512,11 +443,12 @@ inline double get_alpha(const std::vector<double> &log_flat_Lambda, const std::v
 		double max_elem = 0.0;
 
 		size_t col_start = j * dim - j * (j - 1)/2 - j;
-		res_vec[predictor_id] += predictor_col[j] + get_U_val2(log_flat_Lambda, tmp, log_denominator, dim, j, j) + predictor_col[j];
+
+		res_vec[predictor_id] += predictor_col[j] + get_U_val(log_u, log_abs_flat_lambda[col_start + j], j, j) + predictor_col[j];
 		max_elem = (max_elem > res_vec[predictor_id] ? max_elem : res_vec[predictor_id]);
 		for (size_t i = (j + 1); i < dim; ++i) {
 		    if (i != predictor_id) {
-			res_vec[i] += predictor_col[i] + get_U_val2(log_flat_Lambda, tmp, log_denominator, dim, j, i) + predictor_col[j];
+			res_vec[i] += predictor_col[i] + get_U_val(log_u, log_abs_flat_lambda[col_start + j], j, i) + predictor_col[j];
 		    }
 		    max_elem = (max_elem > res_vec[i] ? max_elem : res_vec[i]);
 		}
@@ -562,7 +494,9 @@ inline double dropped_predictor_kld(const std::vector<double> &log_flat_lambda, 
 
     double log_m = std::log(std::abs(mean_beta) + 1e-16); // Sign is lost in the return value so doesn't matter
     size_t dim = cov_beta_col.size();
-    const double log_alpha = get_alpha2(log_flat_lambda, cov_beta_col, dim, predictor_id);
+    const double log_alpha = get_alpha(log_flat_lambda, cov_beta_col,
+					get_U_val_fullrank,
+					dim, predictor_id);
 
     return std::log(0.5) + log_m + log_alpha + log_m;
 }
@@ -575,11 +509,12 @@ inline double dropped_predictor_kld_lowrank(const std::vector<double> &log_flat_
     omp_set_num_threads(n_threads);
 #endif
 
-    double log_denominator = 0.0;
-    const std::vector<double> &tmp = sherman_r_lowrank(log_flat_Lambda, log_f_Lambda, log_v_Sigma_star, log_svd_v_col, &log_denominator);
+    const std::vector<double> &tmp = sherman_r_lowrank(log_flat_Lambda, log_f_Lambda, log_v_Sigma_star, log_svd_v_col);
 
     size_t dim = log_f_Lambda.rows();
-    const double log_alpha = get_alpha(log_flat_Lambda, tmp, log_denominator, dim, predictor_id);
+    const double log_alpha = get_alpha(log_flat_Lambda, tmp,
+				       get_U_val_lowrank,
+				       dim, predictor_id);
 
     double log_m = std::log(std::abs(mean_beta) + 1e-16);
     return std::log(0.5) + log_m + log_alpha + log_m;
