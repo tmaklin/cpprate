@@ -170,26 +170,14 @@ inline double create_denominator(const Eigen::MatrixXd &log_v_Sigma_star, const 
     std::vector<double> square_norms(log_v_Sigma_star.cols(), 0.0);
 
     double max_element = 0.0;
-#pragma omp parallel
-    {
-	double local_max = 0.0;
-#pragma omp for schedule(static) reduction(vec_double_plus:square_norms)
-	for (size_t j = 0; j < log_v_Sigma_star.cols(); ++j) {
-	    for (size_t i = 0; i < log_v_Sigma_star.rows(); ++i) {
-		double log_prod = log_v_Sigma_star(i, j) + log_svd_v_col(j);
-		square_norms[j] += log_prod + log_prod;
-	    }
-	    local_max = (local_max > square_norms[j] ? local_max : square_norms[j]);
+#pragma omp parallel for schedule(static) reduction(vec_double_plus:square_norms) reduction(max:max_element)
+    for (size_t j = 0; j < log_v_Sigma_star.cols(); ++j) {
+	for (size_t i = 0; i < log_v_Sigma_star.rows(); ++i) {
+	    double log_prod = log_v_Sigma_star(i, j) + log_svd_v_col(j);
+	    square_norms[j] += log_prod + log_prod;
 	}
-
-#pragma omp critical
-	{
-	    if (local_max > max_element) {
-		max_element = local_max;
-	    }
-	}
+	max_element = (max_element > square_norms[j] ? max_element : square_norms[j]);
     }
-
 
     double logsumexp = 0.0;
 
