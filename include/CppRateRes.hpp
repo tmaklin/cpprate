@@ -400,9 +400,15 @@ inline double get_U_val_fullrank(const std::vector<double> &log_u, const double 
     return log_abs_flat_lambda/(log_abs_flat_lambda + log_val - std::log1p(std::exp(log_val)));
 }
 
-inline double get_alpha(const std::vector<double> &log_abs_flat_lambda, const std::vector<double> &log_u, const size_t predictor_id,
+inline double get_alpha(const std::vector<double> &log_abs_flat_lambda, const std::vector<double> &log_u, const size_t predictor_id, const size_t n_threads,
 			const std::function<double(const std::vector<double>, const double, const size_t, const size_t)> &get_U_val) {
     // TODO tests
+
+#if defined(CPPRATE_OPENMP_SUPPORT) && (CPPRATE_OPENMP_SUPPORT) == 1
+  // Use `n_threads` within each task
+    omp_set_num_threads(n_threads);
+#endif
+
     size_t dim = log_u.size();
     std::vector<double> predictor_col(dim);
 #pragma omp parallel for schedule(static)
@@ -453,37 +459,6 @@ inline double get_alpha(const std::vector<double> &log_abs_flat_lambda, const st
 
     double log_alpha = std::log(alpha_sum) + alpha_parts_max;
     return log_alpha;
-}
-
-inline double dropped_predictor_kld(const std::vector<double> &log_flat_lambda, const std::vector<double> &cov_beta_col, const double mean_beta, const size_t predictor_id, const size_t n_threads = 1) {
-
-#if defined(CPPRATE_OPENMP_SUPPORT) && (CPPRATE_OPENMP_SUPPORT) == 1
-    // Use `n_threads` within each task
-    omp_set_num_threads(n_threads);
-#endif
-
-    double log_m = std::log(std::abs(mean_beta) + 1e-16); // Sign is lost in the return value so doesn't matter
-    size_t dim = cov_beta_col.size();
-    const double log_alpha = get_alpha(log_flat_lambda, cov_beta_col, predictor_id, get_U_val_fullrank);
-
-    return std::log(0.5) + log_m + log_alpha + log_m;
-}
-
-inline double dropped_predictor_kld_lowrank(const std::vector<double> &log_flat_Lambda, const Eigen::MatrixXd &log_f_Lambda, const Eigen::MatrixXd &log_v_Sigma_star, const Eigen::VectorXd &log_svd_v_col, const double mean_beta, const size_t predictor_id, const size_t n_threads = 1) {
-    // TODO: tests
-
-#if defined(CPPRATE_OPENMP_SUPPORT) && (CPPRATE_OPENMP_SUPPORT) == 1
-  // Use `n_threads` within each task
-    omp_set_num_threads(n_threads);
-#endif
-
-    const std::vector<double> &tmp = sherman_r_lowrank(log_flat_Lambda, log_f_Lambda, log_v_Sigma_star, log_svd_v_col);
-
-    size_t dim = log_f_Lambda.rows();
-    const double log_alpha = get_alpha(log_flat_Lambda, tmp, predictor_id, get_U_val_lowrank);
-
-    double log_m = std::log(std::abs(mean_beta) + 1e-16);
-    return std::log(0.5) + log_m + log_alpha + log_m;
 }
 
 inline Eigen::MatrixXd project_f_draws(const Eigen::MatrixXd &f_draws, const Eigen::MatrixXd &v) {
@@ -635,18 +610,35 @@ inline RATEd RATE_lowrank(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<double> 
     bool test_in_order = ids_to_test.size() == 0;
     size_t i = (test_in_order ? id_start : 0);
     while (i < (test_in_order ? id_end : ids_to_test.size())) {
-	std::vector<std::future<double>> thread_futures;
+#if defined(CPPRATE_OPENMP_SUPPORT) && (CPPRATE_OPENMP_SUPPORT) == 1
+  // Use `n_threads` within each task
+    omp_set_num_threads(n_threads * n_ranks);
+#endif
+	// Build the covariance matrix columns to test
+	std::vector<std::vector<double>> cov_beta_cols;
 	size_t snp_id = (test_in_order ? i : ids_to_test[i]);
 	for (size_t thread_id = 0; thread_id < n_ranks && i < (test_in_order ? id_end : ids_to_test.size()); ++thread_id) {
-	    thread_futures.emplace_back(pool.submit(dropped_predictor_kld_lowrank,
-						    flat_Lambda, Lambda_f, v_Sigma_star, svd_design_matrix_v.col(snp_id), col_means_beta[snp_id], snp_id, n_threads
-						    ));
+	    cov_beta_cols.emplace_back(sherman_r_lowrank(flat_Lambda, Lambda_f, v_Sigma_star, svd_design_matrix_v.col(snp_id)));
 	    ++i;
 	    snp_id = (test_in_order ? i : ids_to_test[i]);
 	}
-	for(size_t thread_id = 0; thread_id < thread_futures.size(); ++thread_id) {
+
+	// Get alpha for each covariance matrix column
+	size_t n_jobs = cov_beta_cols.size();
+	std::vector<std::future<double>> thread_futures(n_jobs);
+	for (size_t thread_id = 0; thread_id < n_jobs; ++thread_id) {
+	    size_t test_id = (test_in_order ? snp_id - (thread_futures.size() - thread_id) : ids_to_test[i - (thread_futures.size() - thread_id)]);
+	    thread_futures[thread_id] = pool.submit(get_alpha,
+						    flat_Lambda, cov_beta_cols[thread_id], test_id, n_threads, get_U_val_lowrank
+						    );
+	}
+
+	// Get KLD from the alphas
+	for(size_t thread_id = 0; thread_id < n_jobs; ++thread_id) {
 	    size_t place_id = (test_in_order ? snp_id - (thread_futures.size() - thread_id) : ids_to_test[i - (thread_futures.size() - thread_id)]);
-	    log_KLD[place_id] = thread_futures[thread_id].get();
+	    double log_m = std::log(std::abs(col_means_beta[place_id]) + 1e-16);
+	    double log_alpha = thread_futures[thread_id].get();
+	    log_KLD[place_id] = log_m + log_m + log_alpha + std::log(0.5);
 	}
     }
 
@@ -675,19 +667,25 @@ inline RATEd RATE_beta_draws(const Eigen::MatrixXd &beta_draws, const std::vecto
     bool test_in_order = ids_to_test.size() == 0;
     size_t i = (test_in_order ? id_start : 0);
     while (i < (test_in_order ? id_end : ids_to_test.size())) {
+#if defined(CPPRATE_OPENMP_SUPPORT) && (CPPRATE_OPENMP_SUPPORT) == 1
+  // Use `n_threads` within each task
+    omp_set_num_threads(n_threads * n_ranks);
+#endif
 	std::vector<std::future<double>> thread_futures;
 	size_t snp_id = (test_in_order ? i : ids_to_test[i]);
 	for (size_t thread_id = 0; thread_id < n_ranks && i < (test_in_order ? id_end : ids_to_test.size()); ++thread_id) {
 	    const std::vector<double> &cov_beta_col = get_col(flat_cov_beta, dim, dim, snp_id);
-	    thread_futures.emplace_back(pool.submit(dropped_predictor_kld,
-						    flat_lambda, cov_beta_col, col_means_beta[snp_id], snp_id, n_threads
+	    thread_futures.emplace_back(pool.submit(get_alpha,
+						    flat_lambda, cov_beta_col, snp_id, n_threads, get_U_val_fullrank
 						    ));
 	    ++i;
 	    snp_id = (test_in_order ? i : ids_to_test[i]);
 	}
 	for(size_t thread_id = 0; thread_id < thread_futures.size(); ++thread_id) {
 	    size_t place_id = (test_in_order ? snp_id - (thread_futures.size() - thread_id) : ids_to_test[i - (thread_futures.size() - thread_id)]);
-	    log_KLD[place_id] = thread_futures[thread_id].get();
+	    double log_m = std::log(std::abs(col_means_beta[place_id]) + 1e-16);
+	    double log_alpha = thread_futures[thread_id].get();
+	    log_KLD[place_id] = log_m + log_m + log_alpha + std::log(0.5);
 	}
     }
 
