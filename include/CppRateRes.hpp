@@ -372,9 +372,9 @@ inline Eigen::MatrixXd decompose_covariance_approximation(const Eigen::MatrixXd 
 	    ++k;
 	}
     }
-    const Eigen::MatrixXd &inv_v = v.completeOrthogonalDecomposition().pseudoInverse();
 
-    return (U*inv_v).transpose();
+    // Use linear system solver to calculate U*pseudoInverse(v) (more efficient, see Eigen documentation)
+    return v.completeOrthogonalDecomposition().transpose().solve(U);
 }
 
 inline Eigen::VectorXd col_means(const Eigen::MatrixXd &mat) {
