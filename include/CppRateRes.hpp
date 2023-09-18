@@ -273,9 +273,8 @@ inline void decompose_design_matrix(const Eigen::SparseMatrix<double> &design_ma
 }
 
 inline Eigen::MatrixXd nonlinear_coefficients(const Eigen::SparseMatrix<double> &design_matrix, const Eigen::MatrixXd &f_draws) {
-    const Eigen::MatrixXd &inv_X = Eigen::MatrixXd(design_matrix).completeOrthogonalDecomposition().pseudoInverse();
-    return f_draws*inv_X.transpose();
-
+    // Calculate f_draws * pseudo_inverse(design_matrix) with a linear equations solver
+    return Eigen::MatrixXd(design_matrix).completeOrthogonalDecomposition().solve(f_draws.transpose()).transpose();
 }
 
 inline Eigen::MatrixXd covariance_matrix(const Eigen::MatrixXd &in) {
