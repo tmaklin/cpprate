@@ -294,31 +294,23 @@ inline Eigen::MatrixXd decompose_covariance_matrix(const Eigen::MatrixXd &covari
     const Eigen::MatrixXd &inv_cov_mat = covariance_matrix.completeOrthogonalDecomposition().pseudoInverse();
     const size_t rank = inv_cov_mat.cols();
 
-    Eigen::VectorXd svd_singular_values;
-    Eigen::MatrixXd svd_U;
-
-    {
-	Eigen::MatrixXd svd_V;
-	RedSVD::RedSVD<Eigen::MatrixXd> svd;
-	svd.compute(inv_cov_mat, rank);
-	svd_U = std::move(svd.matrixU());
-	svd_singular_values = std::move(svd.singularValues());
-    }
+    RedSVD::RedSVD<Eigen::MatrixXd> svd;
+    svd.compute_U(inv_cov_mat, rank);
 
     std::vector<bool> r_D(rank);
     size_t num_r_D_set = 0;
 #pragma omp parallel for schedule(static) reduction(+:num_r_D_set)
     for (size_t i = 0; i < rank; ++i) {
-	r_D[i] = svd_singular_values[i] > 1e-10;
+	r_D[i] = svd.singularValues()[i] > 1e-10;
 	num_r_D_set += r_D[i];
     }
 
-    size_t n_rows_D = svd_U.rows();
-    size_t n_cols_D = svd_U.cols();
+    size_t n_rows_D = svd.matrixU().rows();
+    size_t n_cols_D = svd.matrixU().cols();
     Eigen::MatrixXd u(num_r_D_set, n_rows_D);
     for (size_t i = 0; i < num_r_D_set; ++i) {
 	for (size_t j = 0; j < n_rows_D; ++j) {
-	    u(i, j) = std::sqrt(svd_singular_values[i])*svd_U(j, i);
+	    u(i, j) = std::sqrt(svd.singularValues()[i])*svd.matrixU()(j, i);
 	}
     }
 
@@ -331,36 +323,28 @@ inline Eigen::MatrixXd decompose_covariance_approximation(const Eigen::MatrixXd 
     // to nonzero eigenvalues AND explain `prop_var` of the total
     // variance (default: explain 100%).
 
-    Eigen::VectorXd svd_singular_values;
-    Eigen::MatrixXd svd_U;
+    RedSVD::RedSVD<Eigen::MatrixXd> svd;
+    svd.compute_U(dense_covariance_matrix, svd_rank);
 
-    {
-	Eigen::MatrixXd svd_V;
-	RedSVD::RedSVD<Eigen::MatrixXd> svd;
-	svd.compute(dense_covariance_matrix, svd_rank);
-	svd_U = std::move(svd.matrixU());
-	svd_singular_values = std::move(svd.singularValues());
-    }
-
-    size_t dim_svd_res = svd_singular_values.size();
+    size_t dim_svd_res = svd.singularValues().size();
     std::vector<bool> r_D(dim_svd_res);
 
     size_t num_r_D_set = 0;
     for (size_t i = 0; i < dim_svd_res; ++i) {
-	r_D[i] = svd_singular_values[i] > 1e-10;
+	r_D[i] = svd.singularValues()[i] > 1e-10;
 	num_r_D_set += r_D[i];
     }
 
-    size_t n_rows_U = svd_U.rows();
+    size_t n_rows_U = svd.matrixU().rows();
     Eigen::MatrixXd U(num_r_D_set, n_rows_U);
 
     size_t k = 0;
     for (size_t i = 0; i < dim_svd_res; ++i) {
 	if (r_D[i]) {
 	    for (size_t j = 0; j < n_rows_U; ++j) {
-		double leftside = std::log(1.0) - std::log(std::sqrt(svd_singular_values[i]));
-		bool sign = (leftside > 0 && svd_U(j, i) > 0);
-		U(k, j) = (sign == 1 ? std::exp(leftside + std::log(std::abs(svd_U(j, i)))) : -std::exp(leftside + std::log(std::abs(svd_U(j, i)))));
+		double leftside = std::log(1.0) - std::log(std::sqrt(svd.singularValues()[i]));
+		bool sign = (leftside > 0 && svd.matrixU()(j, i) > 0);
+		U(k, j) = (sign == 1 ? std::exp(leftside + std::log(std::abs(svd.matrixU()(j, i)))) : -std::exp(leftside + std::log(std::abs(svd.matrixU()(j, i)))));
 	    }
 	    ++k;
 	}
