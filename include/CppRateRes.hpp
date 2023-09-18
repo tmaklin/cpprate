@@ -258,18 +258,15 @@ inline void decompose_design_matrix(const Eigen::SparseMatrix<double> &design_ma
 	    ++k;
 	}
     }
-    
-    size_t n_rows_U = svd.matrixU().rows();
-    size_t n_cols_U = svd.matrixU().cols();
-    (*u) = std::move(Eigen::MatrixXd(n_rows_U, num_r_X_set));
 
 #pragma omp parallel for schedule(static)
     for (size_t i = 0; i < num_r_X_set; ++i) {
-	for (size_t j = 0; j < n_rows_U; ++j) {
-	    (*u)(j, i) = (1.0/svd.singularValues()[keep_dim[i]])*svd.matrixU()(j, keep_dim[i]);
+	for (size_t j = 0; j < svd.matrixU().rows(); ++j) {
+	    svd.matrixU()(j, keep_dim[i]) /= svd.singularValues()[keep_dim[i]];
 	}
     }
 
+    (*u) = std::move(svd.matrixU()(Eigen::indexing::all, keep_dim));
     u->transposeInPlace();
     (*v) = std::move(svd.matrixV()(Eigen::indexing::all, keep_dim));
 }
