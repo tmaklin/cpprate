@@ -217,15 +217,6 @@ inline std::vector<double> sherman_r_lowrank(const std::vector<double> &log_flat
     return tmp;
 }
 
-template <typename T>
-inline void svd(const T &design_matrix, const size_t svd_rank,
-		Eigen::MatrixXd *u, Eigen::MatrixXd *v, Eigen::VectorXd *d) {
-    RedSVD::RedSVD<T> mat(design_matrix, svd_rank);
-    (*u) = std::move(mat.matrixU());
-    (*v) = std::move(mat.matrixV());
-    (*d) = std::move(mat.singularValues());
-}
-
 inline void decompose_design_matrix(const Eigen::SparseMatrix<double> &design_matrix, const size_t svd_rank, const double prop_var,
 			     Eigen::MatrixXd *u, Eigen::MatrixXd *v) {
     // Calculate the singular value decomposition of `design_matrix`
@@ -233,10 +224,8 @@ inline void decompose_design_matrix(const Eigen::SparseMatrix<double> &design_ma
     // to nonzero eigenvalues AND explain `prop_var` of the total
     // variance (default: explain 100%).
 
-    Eigen::VectorXd svd_X_singular_values;
-    Eigen::MatrixXd svd_X_U;
-    Eigen::MatrixXd svd_X_V;
-    svd<Eigen::SparseMatrix<double>>(design_matrix, svd_rank, &svd_X_U, &svd_X_V, &svd_X_singular_values);
+    RedSVD::RedSVD<Eigen::MatrixXd> svd;
+    svd.compute(design_matrix, svd_rank);
 
     std::vector<double> px(svd_rank);
     std::vector<bool> r_X(svd_rank);
@@ -244,17 +233,17 @@ inline void decompose_design_matrix(const Eigen::SparseMatrix<double> &design_ma
     double sv_sum = 0.0;
 #pragma omp parallel for schedule(static) reduction(+:sv_sum)
     for (size_t i = 0; i < svd_rank; ++i) {
-	sv_sum += svd_X_singular_values[i]*svd_X_singular_values[i];
+	sv_sum += svd.singularValues()[i]*svd.singularValues()[i];
     }
 
     size_t num_r_X_set = 0;
     for (size_t i = 0; i < svd_rank; ++i) {
-	px[i] = svd_X_singular_values[i]*svd_X_singular_values[i];
+	px[i] = svd.singularValues()[i]*svd.singularValues()[i];
 	px[i] /= sv_sum;
 	if (i > 0) {
 	    px[i] += px[i - 1];
 	}
-	r_X[i] = (svd_X_singular_values[i] > (double)1e-10) && (std::abs(px[i] - prop_var) > 1e-7);
+	r_X[i] = (svd.singularValues()[i] > (double)1e-10) && (std::abs(px[i] - prop_var) > 1e-7);
 	num_r_X_set += r_X[i];
     }
 
@@ -267,20 +256,20 @@ inline void decompose_design_matrix(const Eigen::SparseMatrix<double> &design_ma
 	}
     }
     
-    size_t n_rows_U = svd_X_U.rows();
-    size_t n_cols_U = svd_X_U.cols();
+    size_t n_rows_U = svd.matrixU().rows();
+    size_t n_cols_U = svd.matrixU().cols();
     (*u) = std::move(Eigen::MatrixXd(num_r_X_set, n_rows_U));
 
     k = 0;
     for (size_t i = 0; i < n_cols_U; ++i) {
 	if (r_X[i]) {
 	    for (size_t j = 0; j < n_rows_U; ++j) {
-		(*u)(k, j) = (1.0/svd_X_singular_values[i])*svd_X_U(j, i);
+		(*u)(k, j) = (1.0/svd.singularValues()[i])*svd.matrixU()(j, i);
 	    }
 	    ++k;
 	}
     }
-    (*v) = std::move(svd_X_V(Eigen::indexing::all, keep_dim));
+    (*v) = std::move(svd.matrixV()(Eigen::indexing::all, keep_dim));
 }
 
 inline Eigen::MatrixXd nonlinear_coefficients(const Eigen::SparseMatrix<double> &design_matrix, const Eigen::MatrixXd &f_draws) {
@@ -311,8 +300,10 @@ inline Eigen::MatrixXd decompose_covariance_matrix(const Eigen::MatrixXd &covari
 
     {
 	Eigen::MatrixXd svd_V;
-
-	svd<Eigen::MatrixXd>(inv_cov_mat, rank, &svd_U, &svd_V, &svd_singular_values);
+	RedSVD::RedSVD<Eigen::MatrixXd> svd;
+	svd.compute(inv_cov_mat, rank);
+	svd_U = std::move(svd.matrixU());
+	svd_singular_values = std::move(svd.singularValues());
     }
 
     std::vector<bool> r_D(rank);
@@ -346,7 +337,10 @@ inline Eigen::MatrixXd decompose_covariance_approximation(const Eigen::MatrixXd 
 
     {
 	Eigen::MatrixXd svd_V;
-	svd<Eigen::MatrixXd>(dense_covariance_matrix, svd_rank, &svd_U, &svd_V, &svd_singular_values);
+	RedSVD::RedSVD<Eigen::MatrixXd> svd;
+	svd.compute(dense_covariance_matrix, svd_rank);
+	svd_U = std::move(svd.matrixU());
+	svd_singular_values = std::move(svd.singularValues());
     }
 
     size_t dim_svd_res = svd_singular_values.size();
