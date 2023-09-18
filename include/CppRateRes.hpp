@@ -645,13 +645,4 @@ inline RATEd RATE_beta_draws(const Eigen::MatrixXd &beta_draws, const std::vecto
     return RATEd(log_KLD);
 }
 
-inline RATEd RATE_fullrank(const Eigen::MatrixXd &f_draws, const Eigen::SparseMatrix<double> &design_matrix, const std::vector<size_t> &ids_to_test, const size_t id_start, const size_t id_end, const size_t n_snps) {
-    // ## WARNING: Do not compile with -ffast-math
-    const Eigen::MatrixXd &beta_draws = nonlinear_coefficients(design_matrix, f_draws);
-
-    const RATEd &res = RATE_beta_draws(beta_draws, ids_to_test, id_start, id_end, n_snps, 1, 1);
-
-    return res;
-}
-
 #endif

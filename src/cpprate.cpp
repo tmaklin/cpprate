@@ -177,6 +177,10 @@ int main(int argc, char* argv[]) {
       read_nonlinear(&n_snps, &in, &in2, &posterior_draws, &design_matrix);
       in.close();
       in2.close();
+      if (args.value<bool>("fullrank")) {
+	  posterior_draws = std::move(nonlinear_coefficients(design_matrix, posterior_draws));
+	  design_matrix.resize(0, 0);
+      }
   } else if (from_beta_draws && !lowrank_beta_draws) {
       bxz::ifstream in(args.value<std::string>("beta-draws"));
       read_beta_draws(&n_snps, &in, &posterior_draws);
@@ -213,7 +217,7 @@ int main(int argc, char* argv[]) {
 
   RATEd res;
   if (args.value<bool>("fullrank") && !from_beta_draws) {
-      res = RATE_fullrank(posterior_draws, design_matrix, args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_snps);
+      res = RATE_beta_draws(posterior_draws, args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_snps, n_threads, n_threads_per_snp);
   } else if (!from_beta_draws) {
       size_t svd_rank = args.value<size_t>("low-rank") == 0 ? std::min(design_matrix.rows(), design_matrix.cols()) : args.value<size_t>("low-rank");
       res = RATE_lowrank(posterior_draws, design_matrix, args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_snps, svd_rank, args.value<double>("prop-var"), n_threads, n_threads_per_snp);
