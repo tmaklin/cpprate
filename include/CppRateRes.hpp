@@ -329,28 +329,34 @@ inline Eigen::MatrixXd decompose_covariance_approximation(const Eigen::MatrixXd 
     std::vector<bool> r_D(dim_svd_res);
 
     size_t num_r_D_set = 0;
+#pragma omp parallel for schedule(static) reduction(+:num_r_D_set)
     for (size_t i = 0; i < dim_svd_res; ++i) {
 	r_D[i] = svd.singularValues()[i] > 1e-10;
 	num_r_D_set += r_D[i];
     }
 
-    size_t n_rows_U = svd.matrixU().rows();
-    Eigen::MatrixXd U(num_r_D_set, n_rows_U);
-
-    size_t k = 0;
+    Eigen::VectorXd keep_dim(num_r_D_set);
     for (size_t i = 0; i < dim_svd_res; ++i) {
 	if (r_D[i]) {
-	    for (size_t j = 0; j < n_rows_U; ++j) {
-		double leftside = std::log(1.0) - std::log(std::sqrt(svd.singularValues()[i]));
-		bool sign = (leftside > 0 && svd.matrixU()(j, i) > 0);
-		U(k, j) = (sign == 1 ? std::exp(leftside + std::log(std::abs(svd.matrixU()(j, i)))) : -std::exp(leftside + std::log(std::abs(svd.matrixU()(j, i)))));
-	    }
-	    ++k;
+	    keep_dim[i] = i;
+	}
+    }
+
+    size_t n_rows_U = svd.matrixU().rows();
+    svd.matrixU() = svd.matrixU()(Eigen::indexing::all, keep_dim);
+
+#pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < num_r_D_set; ++i) {
+	for (size_t j = 0; j < n_rows_U; ++j) {
+	    double leftside = std::log(1.0) - std::log(std::sqrt(svd.singularValues()[keep_dim[i]]));
+	    bool sign = (leftside > 0 && svd.matrixU()(j, i) > 0);
+	    double log_abs_U = std::log(std::abs(svd.matrixU()(j, i)) + 1e-16);
+	    svd.matrixU()(j, i) = (sign == 1 ? std::exp(leftside + log_abs_U) : -std::exp(leftside + log_abs_U));
 	}
     }
 
     // Use linear system solver to calculate U*pseudoInverse(v) (more efficient, see Eigen documentation)
-    return v.completeOrthogonalDecomposition().transpose().solve(U);
+    return v.completeOrthogonalDecomposition().transpose().solve(svd.matrixU());
 }
 
 inline Eigen::VectorXd col_means(const Eigen::MatrixXd &mat) {
