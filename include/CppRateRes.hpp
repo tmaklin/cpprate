@@ -532,24 +532,16 @@ inline std::vector<double> log_flatten_triangular(const Eigen::MatrixXd &triangu
     return flattened;
 }
 
-inline RATEd RATE_lowrank(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<double> &design_matrix, const std::vector<size_t> &ids_to_test, const size_t id_start, const size_t id_end, const size_t n_snps, const size_t svd_rank, const double prop_var, const size_t n_ranks = 1, const size_t n_threads = 1) {
+inline RATEd RATE_lowrank(const Eigen::VectorXd &col_means_beta, const Eigen::MatrixXd &proj_f_draws, Eigen::MatrixXd &svd_design_matrix_v, const std::vector<size_t> &ids_to_test, const size_t id_start, const size_t id_end, const size_t n_snps, const size_t svd_rank, const size_t n_ranks = 1, const size_t n_threads = 1) {
     // ## WARNING: Do not compile with -ffast-math
-
-    Eigen::MatrixXd u;
-    Eigen::MatrixXd svd_design_matrix_v;
-    decompose_design_matrix(design_matrix, svd_rank, prop_var, &u, &svd_design_matrix_v);
-    design_matrix.resize(0, 0);
-
-    const Eigen::VectorXd &col_means_beta = approximate_beta_means(f_draws, u, svd_design_matrix_v);
-    Eigen::MatrixXd v_Sigma_star = std::move(svd_design_matrix_v*project_f_draws(f_draws, u).triangularView<Eigen::Lower>());
+    Eigen::MatrixXd v_Sigma_star = std::move(svd_design_matrix_v*proj_f_draws.triangularView<Eigen::Lower>());
 
     Eigen::MatrixXd Lambda_f;
     std::vector<double> flat_Lambda;
 
     {
 	Eigen::MatrixXd Lambda = Eigen::MatrixXd::Zero(n_snps, n_snps);
-	Eigen::MatrixXd Lambda_chol = decompose_covariance_approximation(project_f_draws(f_draws, u), svd_design_matrix_v, svd_rank);
-	f_draws.resize(0, 0);
+	Eigen::MatrixXd Lambda_chol = decompose_covariance_approximation(proj_f_draws, svd_design_matrix_v, svd_rank);
 	Lambda.template selfadjointView<Eigen::Lower>().rankUpdate(Lambda_chol);
 	Lambda_f = Lambda.triangularView<Eigen::Lower>() * v_Sigma_star;
 	flat_Lambda = log_flatten_triangular(Lambda);
@@ -569,8 +561,6 @@ inline RATEd RATE_lowrank(Eigen::MatrixXd &f_draws, Eigen::SparseMatrix<double> 
 	    }
 	}
     }
-
-    u.resize(0, 0);
 
     svd_design_matrix_v.transposeInPlace();
 #pragma omp parallel for schedule(static)
@@ -611,7 +601,7 @@ inline RATEd RATE_beta_draws(const Eigen::MatrixXd &beta_draws, const std::vecto
 	flat_cov_beta = log_flatten_triangular(cov_beta);
     }
 
-    std::vector<double> log_KLD(n_snps, 0.0);
+    std::vector<double> log_KLD(n_snps, -36.84136);
 
     bool test_in_order = ids_to_test.size() == 0;
     size_t start = test_in_order ? id_start : 0;
