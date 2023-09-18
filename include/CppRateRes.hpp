@@ -230,15 +230,17 @@ inline void decompose_design_matrix(const Eigen::SparseMatrix<double> &design_ma
     std::vector<double> px(svd_rank);
     std::vector<bool> r_X(svd_rank);
 
+    // Calculate weight of each SVD component
     double sv_sum = 0.0;
 #pragma omp parallel for schedule(static) reduction(+:sv_sum)
     for (size_t i = 0; i < svd_rank; ++i) {
-	sv_sum += svd.singularValues()[i]*svd.singularValues()[i];
+	px[i] = svd.singularValues()[i]*svd.singularValues()[i];
+	sv_sum += px[i];
     }
 
+    // Find number of SVD components required to explain `prop_var` of the variance
     size_t num_r_X_set = 0;
     for (size_t i = 0; i < svd_rank; ++i) {
-	px[i] = svd.singularValues()[i]*svd.singularValues()[i];
 	px[i] /= sv_sum;
 	if (i > 0) {
 	    px[i] += px[i - 1];
@@ -247,6 +249,7 @@ inline void decompose_design_matrix(const Eigen::SparseMatrix<double> &design_ma
 	num_r_X_set += r_X[i];
     }
 
+    // Construct a vector for containing indexes of SVD components to keep to explain `prop_var`
     Eigen::VectorXi keep_dim(num_r_X_set);
     size_t k = 0;
     for (size_t i = 0; i < svd_rank; ++i) {
@@ -258,17 +261,16 @@ inline void decompose_design_matrix(const Eigen::SparseMatrix<double> &design_ma
     
     size_t n_rows_U = svd.matrixU().rows();
     size_t n_cols_U = svd.matrixU().cols();
-    (*u) = std::move(Eigen::MatrixXd(num_r_X_set, n_rows_U));
+    (*u) = std::move(Eigen::MatrixXd(n_rows_U, num_r_X_set));
 
-    k = 0;
-    for (size_t i = 0; i < n_cols_U; ++i) {
-	if (r_X[i]) {
-	    for (size_t j = 0; j < n_rows_U; ++j) {
-		(*u)(k, j) = (1.0/svd.singularValues()[i])*svd.matrixU()(j, i);
-	    }
-	    ++k;
+#pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < num_r_X_set; ++i) {
+	for (size_t j = 0; j < n_rows_U; ++j) {
+	    (*u)(j, i) = (1.0/svd.singularValues()[keep_dim[i]])*svd.matrixU()(j, keep_dim[i]);
 	}
     }
+
+    u->transposeInPlace();
     (*v) = std::move(svd.matrixV()(Eigen::indexing::all, keep_dim));
 }
 
