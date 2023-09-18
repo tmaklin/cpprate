@@ -83,9 +83,11 @@ bool parse_args(int argc, char* argv[], cxxargs::Arguments &args) {
     return false;
 }
 
-void read_nonlinear(size_t *n_snps, std::istream *f_draws_file, std::istream *design_matrix_file, Eigen::MatrixXd *f_draws_mat, Eigen::SparseMatrix<double> *design_matrix_mat) {
-    // TODO split into read_f_draws and read_design_matrix
-    size_t n_obs = 0;
+void read_design_matrix(std::istream *design_matrix_file, size_t *n_snps, size_t *n_obs, Eigen::SparseMatrix<double> *design_matrix_mat) {
+    // Reset just in case
+    *n_obs = 0;
+    *n_snps = 0;
+
     std::vector<bool> X;
     std::string line;
     bool first_line = true;
@@ -99,41 +101,30 @@ void read_nonlinear(size_t *n_snps, std::istream *f_draws_file, std::istream *de
 	while(std::getline(parts, part, ',')) {
 	    X.emplace_back((bool)std::stol(part));
 	}
-	++n_obs;
+	++(*n_obs);
     }
-    *design_matrix_mat = std::move(vec_to_sparse_matrix<double, bool>(X, n_obs, *n_snps));
-
-    size_t n_f_draws = 0;
-    std::vector<double> f_draws;
-    while (std::getline(*f_draws_file, line)) {
-	std::stringstream parts(line);
-	std::string part;
-	while(std::getline(parts, part, ',')) {
-	    f_draws.emplace_back(std::stold(part));
-	}
-	++n_f_draws;
-    }
-    *f_draws_mat = std::move(vec_to_dense_matrix(f_draws, n_f_draws, n_obs));
+    *design_matrix_mat = std::move(vec_to_sparse_matrix<double, bool>(X, *n_obs, *n_snps));
 }
 
-void read_beta_draws(size_t *n_snps, std::istream *beta_draws_file, Eigen::MatrixXd *beta_draws_mat) {
-    std::vector<double> beta_draws;
-    size_t n_posterior_draws = 0;
+void read_posterior_draws(std::istream *posterior_draws_file, size_t *n_draws, size_t *n_obs, Eigen::MatrixXd *posterior_draws_mat) {
+    *n_draws = 0;
+    *n_obs = 0;
+    std::vector<double> posterior_draws;
     std::string line;
     bool first_line = true;
-    while (std::getline(*beta_draws_file, line)) {
+    while (std::getline(*posterior_draws_file, line)) {
 	if (first_line) {
-	    *n_snps = std::count(line.begin(), line.end(), ',') + 1;
+	    *n_obs = std::count(line.begin(), line.end(), ',') + 1;
 	    first_line = false;
 	}
 	std::stringstream parts(line);
 	std::string part;
 	while(std::getline(parts, part, ',')) {
-	    beta_draws.emplace_back(std::stold(part));
+	    posterior_draws.emplace_back(std::stold(part));
 	}
-	++n_posterior_draws;
+	++(*n_draws);
     }
-    *beta_draws_mat = std::move(vec_to_dense_matrix(beta_draws, n_posterior_draws, *n_snps));
+    *posterior_draws_mat = std::move(vec_to_dense_matrix(posterior_draws, *n_draws, *n_obs));
 }
 
 int main(int argc, char* argv[]) {
