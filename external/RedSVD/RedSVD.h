@@ -156,20 +156,12 @@ namespace RedSVD
 			m_vectorS = std::move(svdOfC.singularValues());
 		}
 
-		DenseMatrix matrixU() const
-		{
-			return m_matrixU;
-		}
-
-		ScalarVector singularValues() const
-		{
-			return m_vectorS;
-		}
-
-		DenseMatrix matrixV() const
-		{
-			return m_matrixV;
-		}
+	        const DenseMatrix& matrixU() const { return m_matrixU; }
+		const ScalarVector& singularValues() const { return m_vectorS; }
+		const DenseMatrix& matrixV() const { return m_matrixV; }
+	        DenseMatrix& matrixU() { return m_matrixU; }
+		ScalarVector& singularValues() { return m_vectorS; }
+		DenseMatrix& matrixV() { return m_matrixV; }
 
 	private:
 		DenseMatrix m_matrixU;
