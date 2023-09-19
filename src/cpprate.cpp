@@ -146,6 +146,19 @@ void print_results(const RATEd &res, const size_t n_snps) {
     std::cout << std::endl;
 }
 
+Eigen::SparseMatrix<double> read_decomposition(const std::string &design_matrix_file, const size_t svd_rank, const double prop_var,
+			size_t *n_snps, size_t *n_obs, Eigen::MatrixXd *svd_U, Eigen::MatrixXd *svd_V) {
+      Eigen::SparseMatrix<double> design_matrix;
+      bxz::ifstream design_matrix_in(design_matrix_file);
+      read_design_matrix(&design_matrix_in, n_snps, n_obs, &design_matrix);
+      design_matrix_in.close();
+
+      size_t decomposition_rank = (svd_rank == 0 ? std::min(*n_snps, *n_obs) : svd_rank);
+      decompose_design_matrix(design_matrix, decomposition_rank, prop_var, svd_U, svd_V);
+
+      return design_matrix;
+}
+
 int main(int argc, char* argv[]) {
   cxxargs::Arguments args("cpprate", "Usage: cpprate -f <f-draws> -x <design-matrix> -n <num-obs> -d <num-SNPs> -m <num-f-draws>");
   try {
@@ -176,7 +189,7 @@ int main(int argc, char* argv[]) {
 
   // Check what mode we're running in
   bool from_beta_draws = CmdOptionPresent(argv, argv+argc, "--beta-draws");
-  bool lowrank_beta_draws = CmdOptionPresent(argv, argv+argc, "--beta-draws") && (CmdOptionPresent(argv, argv+argc, "-x")) && !args.value<bool>("fullrank");
+  bool run_fullrank = args.value<bool>("fullrank") || (from_beta_draws && !CmdOptionPresent(argv, argv+argc, "-x"));
 
   size_t low_rank_rank = args.value<size_t>("low-rank");
 
@@ -191,20 +204,17 @@ int main(int argc, char* argv[]) {
 
   // If read in posterior draws for beta and running fullrank algorithm
   // then there is no need to read in anything else so just run RATE.
-  RATEd res;
-  if (from_beta_draws && !lowrank_beta_draws) {
+  std::unique_ptr<CovMat> cov_beta_ptr;
+  if (from_beta_draws && run_fullrank) {
       size_t id_start = std::max((args.value<size_t>("id-start") == 0 ? 0 : args.value<size_t>("id-start") - 1), (size_t)0);
       size_t id_end = std::min((args.value<size_t>("id-end") == 0 ? n_obs_draws : args.value<size_t>("id-end")), n_obs_draws);
-      FullrankCovMat cov_beta;
-      cov_beta.fill(posterior_draws);
+      cov_beta_ptr.reset(new FullrankCovMat());
+      static_cast<FullrankCovMat*>(cov_beta_ptr.get())->fill(posterior_draws);
       posterior_draws = std::move(col_means(posterior_draws));
-      res = run_RATE(posterior_draws, cov_beta, args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_obs_draws, n_threads, n_threads_per_snp);
-      print_results(res, n_obs_draws);
-      return 0;
   }
 
   // Check if running fullrank algorithm on f draws
-  if (args.value<bool>("fullrank")) {
+  if (!from_beta_draws && run_fullrank) {
       // Read in the design matrix
       size_t n_snps = 0;
       size_t n_obs_X = 0;
@@ -222,27 +232,25 @@ int main(int argc, char* argv[]) {
       size_t id_start = std::max((args.value<size_t>("id-start") == 0 ? 0 : args.value<size_t>("id-start") - 1), (size_t)0);
       size_t id_end = std::min((args.value<size_t>("id-end") == 0 ? n_snps : args.value<size_t>("id-end")), n_snps);
 
-      FullrankCovMat cov_beta;
-      cov_beta.fill(posterior_draws);
+      cov_beta_ptr.reset(new FullrankCovMat());
+      static_cast<FullrankCovMat*>(cov_beta_ptr.get())->fill(posterior_draws);
       posterior_draws = std::move(col_means(posterior_draws));
-
-      res = run_RATE(posterior_draws, cov_beta, args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_snps, n_threads, n_threads_per_snp); 
-      print_results(res, n_snps);
-      return 0;
   }
 
   // Otherwise running lowrank algorithm
   size_t n_snps = 0;
-  LowrankCovMat cov_beta;
-  if (false) {
-      // TODO implement reading in the decomposed inputs from a file
-  } else {
-      // Read in the design matrix
+  if (!run_fullrank) {
+      cov_beta_ptr.reset(new LowrankCovMat());
+      // Decompose the design matrix
+      Eigen::MatrixXd svd_design_matrix_U;
       size_t n_obs;
-      Eigen::SparseMatrix<double> design_matrix;
-      bxz::ifstream design_matrix_file(args.value<std::string>('x'));
-      read_design_matrix(&design_matrix_file, &n_snps, &n_obs, &design_matrix);
-      design_matrix_file.close();
+
+      if (from_beta_draws) {
+	  const Eigen::SparseMatrix<double> &design_matrix = read_decomposition(args.value<std::string>('x'), low_rank_rank, args.value<double>("prop-var"), &n_snps, &n_obs, &svd_design_matrix_U,  static_cast<LowrankCovMat*>(cov_beta_ptr.get())->get_svd_V_p()).transpose();
+	  posterior_draws *= design_matrix ;
+      } else {
+	  read_decomposition(args.value<std::string>('x'), low_rank_rank, args.value<double>("prop-var"), &n_snps, &n_obs, &svd_design_matrix_U,  static_cast<LowrankCovMat*>(cov_beta_ptr.get())->get_svd_V_p()) ;
+      }
 
       // Check that the input dimensions are correct
       if (n_snps != n_obs_draws && from_beta_draws) {
@@ -252,29 +260,23 @@ int main(int argc, char* argv[]) {
       }
 
       // If lowrank decomposition rank was supplied set it to minimum of the dimension of design_matrix
-      low_rank_rank = low_rank_rank == 0 ? std::min(design_matrix.rows(), design_matrix.cols()) : low_rank_rank;
+      low_rank_rank = low_rank_rank == 0 ? std::min(n_snps, n_obs) : low_rank_rank;
 
-      if (from_beta_draws) {
-	  // Calculate predictions = X*B' to use the lowrank approximation
-	  posterior_draws *= design_matrix.transpose();
-      }
-
-      // Decompose the design matrix
-      Eigen::MatrixXd svd_design_matrix_U;
-      decompose_design_matrix(design_matrix, low_rank_rank, args.value<double>("prop-var"), &svd_design_matrix_U, cov_beta.get_svd_V_p());
-
-      cov_beta.construct(project_f_draws(posterior_draws, svd_design_matrix_U), low_rank_rank);
-      posterior_draws = std::move(approximate_beta_means(posterior_draws, svd_design_matrix_U, cov_beta.get_svd_V()));
+      static_cast<LowrankCovMat*>(cov_beta_ptr.get())->construct(project_f_draws(posterior_draws, svd_design_matrix_U), low_rank_rank);
+      posterior_draws = std::move(approximate_beta_means(posterior_draws, svd_design_matrix_U,  static_cast<LowrankCovMat*>(cov_beta_ptr.get())->get_svd_V()));
   }
-  cov_beta.fill();
-  cov_beta.logarithmize_lambda();
-  cov_beta.logarithmize_svd_V();
 
+  if (!run_fullrank) {
+       static_cast<LowrankCovMat*>(cov_beta_ptr.get())->fill();
+       static_cast<LowrankCovMat*>(cov_beta_ptr.get())->logarithmize_lambda();
+       static_cast<LowrankCovMat*>(cov_beta_ptr.get())->logarithmize_svd_V();
+  }
+    
   size_t id_start = std::max((args.value<size_t>("id-start") == 0 ? 0 : args.value<size_t>("id-start") - 1), (size_t)0);
   size_t id_end = std::min((args.value<size_t>("id-end") == 0 ? n_snps : args.value<size_t>("id-end")), n_snps);
 
   // Run RATE
-  res = run_RATE(posterior_draws, cov_beta, args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_snps, n_threads, n_threads_per_snp);
+  RATEd res = run_RATE(posterior_draws, *cov_beta_ptr.get(), args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_snps, n_threads, n_threads_per_snp);
 
   // Print results
   print_results(res, n_snps);
