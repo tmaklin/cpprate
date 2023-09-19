@@ -98,8 +98,8 @@ inline Eigen::MatrixXd decompose_covariance_approximation(const Eigen::MatrixXd 
     svd.compute_U(dense_covariance_matrix, svd_rank);
 
 #pragma omp parallel for schedule(static)
-    for (size_t i = 0; i < svd.matrixU().cols(); ++i) {
-	for (size_t j = 0; j < svd.matrixU().rows(); ++j) {
+    for (Eigen::Index i = 0; i < svd.matrixU().cols(); ++i) {
+	for (Eigen::Index j = 0; j < svd.matrixU().rows(); ++j) {
 	    double leftside = std::log(1.0) - std::log(std::sqrt(svd.singularValues()[i]));
 	    bool sign = (leftside > 0 && svd.matrixU()(j, i) > 0);
 	    double log_abs_U = std::log(std::abs(svd.matrixU()(j, i)) + 1e-16);
@@ -209,8 +209,8 @@ private:
 
 	double max_element = 0.0;
 #pragma omp parallel for schedule(static) reduction(vec_double_plus:square_norms) reduction(max:max_element)
-	for (size_t j = 0; j < this->log_v_Sigma_star.cols(); ++j) {
-	    for (size_t i = 0; i < this->log_v_Sigma_star.rows(); ++i) {
+	for (Eigen::Index j = 0; j < this->log_v_Sigma_star.cols(); ++j) {
+	    for (Eigen::Index i = 0; i < this->log_v_Sigma_star.rows(); ++i) {
 		double log_prod = this->log_v_Sigma_star(i, j) + log_svd_V.col(col_id)[j];
 		square_norms[j] += log_prod + log_prod;
 	    }
@@ -219,7 +219,7 @@ private:
 
 	double logsumexp = 0.0;
 #pragma omp parallel for schedule(static) reduction(+:logsumexp)
-	for (size_t j = 0; j < this->log_v_Sigma_star.cols(); ++j) {
+	for (Eigen::Index j = 0; j < this->log_v_Sigma_star.cols(); ++j) {
 	    logsumexp += std::exp(square_norms[j] - max_element);
 	}
 
@@ -234,7 +234,7 @@ private:
 	std::vector<double> tmp(dim, 0.0);
 
 #pragma omp parallel for schedule(static) reduction(vec_double_plus:tmp)
-	for (size_t j = 0; j < log_f_Lambda.cols(); ++j) {
+	for (Eigen::Index j = 0; j < log_f_Lambda.cols(); ++j) {
 	    for (size_t i = 0; i < dim; ++i) {
 		tmp[i] += log_f_Lambda(i, j) + log_svd_V.col(col_id)[j];
 	    }
@@ -268,8 +268,8 @@ public:
 	this->log_f_Lambda *= this->log_v_Sigma_star.triangularView<Eigen::Lower>();
 
 #pragma omp parallel for schedule(static)
-	for (size_t i = 0; i < this->log_v_Sigma_star.cols(); ++i) {
-	    for (size_t j = 0; j < this->log_v_Sigma_star.rows(); ++j) {
+	for (Eigen::Index i = 0; i < this->log_v_Sigma_star.cols(); ++i) {
+	    for (Eigen::Index j = 0; j < this->log_v_Sigma_star.rows(); ++j) {
 		this->log_v_Sigma_star(j, i) = std::log(std::abs(this->log_v_Sigma_star(j, i)) + 1e-16) + std::log(std::abs(Lambda_chol(j, i)) + 1e-16);
 	    }
 	}
@@ -277,8 +277,8 @@ public:
 
     void logarithmize_lambda() {
 #pragma omp parallel for schedule(static)
-	for (size_t i = 0; i < this->log_f_Lambda.cols(); ++i) {
-	    for (size_t j = 0; j < this->log_f_Lambda.rows(); ++j) {
+	for (Eigen::Index i = 0; i < this->log_f_Lambda.cols(); ++i) {
+	    for (Eigen::Index j = 0; j < this->log_f_Lambda.rows(); ++j) {
 		this->log_f_Lambda(j, i) = std::log(std::abs(this->log_f_Lambda(j, i)) + 1e-16);
 	    }
 	}
@@ -287,8 +287,8 @@ public:
     void logarithmize_svd_V() {
 	this->log_svd_V.transposeInPlace();
 #pragma omp parallel for schedule(static)
-	for (size_t i = 0; i < this->log_svd_V.cols(); ++i) {
-	    for (size_t j = 0; j < this->log_svd_V.rows(); ++j) {
+	for (Eigen::Index i = 0; i < this->log_svd_V.cols(); ++i) {
+	    for (Eigen::Index j = 0; j < this->log_svd_V.rows(); ++j) {
 		this->log_svd_V(j, i) = std::log(std::abs(this->log_svd_V(j, i) + 1e-16));
 	    }
 	}

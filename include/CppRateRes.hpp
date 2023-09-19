@@ -100,7 +100,7 @@ inline void decompose_design_matrix(const Eigen::SparseMatrix<double> &design_ma
 
 #pragma omp parallel for schedule(static)
     for (size_t i = 0; i < num_r_X_set; ++i) {
-	for (size_t j = 0; j < svd.matrixU().rows(); ++j) {
+	for (Eigen::Index j = 0; j < svd.matrixU().rows(); ++j) {
 	    svd.matrixU()(j, keep_dim[i]) /= svd.singularValues()[keep_dim[i]];
 	}
     }
@@ -134,7 +134,7 @@ inline double get_alpha(const CovMat &cov_beta, const std::vector<double> &log_u
 #pragma omp parallel for schedule(guided) reduction(vec_double_plus:alpha_parts) reduction(max:alpha_parts_max)
     for (int64_t j = dim - 1; j >= 0; --j) {
 	std::vector<double> res_vec(dim, 0.0);
-	if (j != predictor_id) {
+	if ((size_t)j != predictor_id) {
 	    double max_elem = 0.0;
 
 	    res_vec[predictor_id] += predictor_col[j] + predictor_col[j] + predictor_col[j];
