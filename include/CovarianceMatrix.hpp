@@ -81,7 +81,7 @@ inline Eigen::MatrixXd decompose_covariance_matrix(const Eigen::MatrixXd &covari
     Eigen::MatrixXd u(num_r_D_set, n_rows_D);
     for (size_t i = 0; i < num_r_D_set; ++i) {
 	for (size_t j = 0; j < n_rows_D; ++j) {
-	    u(i, j) = std::sqrt(svd.singularValues()[i])*svd.matrixU()(j, i);
+	    u(i, j) = std::sqrt(std::abs(svd.singularValues()[i] + 1e-16))*svd.matrixU()(j, i);
 	}
     }
 
@@ -100,7 +100,7 @@ inline Eigen::MatrixXd decompose_covariance_approximation(const Eigen::MatrixXd 
 #pragma omp parallel for schedule(static)
     for (Eigen::Index i = 0; i < svd.matrixU().cols(); ++i) {
 	for (Eigen::Index j = 0; j < svd.matrixU().rows(); ++j) {
-	    double leftside = std::log(1.0) - std::log(std::sqrt(svd.singularValues()[i]));
+	    double leftside = std::log(1.0) - std::log(std::sqrt(std::abs(svd.singularValues()[i]) + 1e-16));
 	    bool sign = (leftside > 0 && svd.matrixU()(j, i) > 0);
 	    double log_abs_U = std::log(std::abs(svd.matrixU()(j, i)) + 1e-16);
 	    svd.matrixU()(j, i) = (sign == 1 ? std::exp(leftside + log_abs_U) : -std::exp(leftside + log_abs_U));
