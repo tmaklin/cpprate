@@ -297,7 +297,7 @@ public:
     std::vector<double> get_col(const size_t col_id) const override {
 	// TODO: tests
 	const double log_denominator = std::log1p(this->create_denominator(col_id));
-	std::vector<double> col = std::move(this->create_log_nominator(col_id));
+	std::vector<double> col = this->create_log_nominator(col_id);
 #pragma omp parallel for schedule(static)
 	for (size_t i = 0; i < col.size(); ++i) {
 	    col[i] -= log_denominator;
