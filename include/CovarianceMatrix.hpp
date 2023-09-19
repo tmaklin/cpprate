@@ -98,30 +98,10 @@ inline Eigen::MatrixXd decompose_covariance_approximation(const Eigen::MatrixXd 
     RedSVD::RedSVD<Eigen::MatrixXd> svd;
     svd.compute_U(dense_covariance_matrix, svd_rank);
 
-    size_t dim_svd_res = svd.singularValues().size();
-    std::vector<bool> r_D(dim_svd_res);
-
-    size_t num_r_D_set = 0;
-#pragma omp parallel for schedule(static) reduction(+:num_r_D_set)
-    for (size_t i = 0; i < dim_svd_res; ++i) {
-	r_D[i] = svd.singularValues()[i] > 1e-10;
-	num_r_D_set += r_D[i];
-    }
-
-    Eigen::VectorXd keep_dim(num_r_D_set);
-    for (size_t i = 0; i < dim_svd_res; ++i) {
-	if (r_D[i]) {
-	    keep_dim[i] = i;
-	}
-    }
-
-    size_t n_rows_U = svd.matrixU().rows();
-    svd.matrixU() = svd.matrixU()(Eigen::indexing::all, keep_dim);
-
 #pragma omp parallel for schedule(static)
-    for (size_t i = 0; i < num_r_D_set; ++i) {
-	for (size_t j = 0; j < n_rows_U; ++j) {
-	    double leftside = std::log(1.0) - std::log(std::sqrt(svd.singularValues()[keep_dim[i]]));
+    for (size_t i = 0; i < svd.matrixU().cols(); ++i) {
+	for (size_t j = 0; j < svd.matrixU().rows(); ++j) {
+	    double leftside = std::log(1.0) - std::log(std::sqrt(svd.singularValues()[i]));
 	    bool sign = (leftside > 0 && svd.matrixU()(j, i) > 0);
 	    double log_abs_U = std::log(std::abs(svd.matrixU()(j, i)) + 1e-16);
 	    svd.matrixU()(j, i) = (sign == 1 ? std::exp(leftside + log_abs_U) : -std::exp(leftside + log_abs_U));
