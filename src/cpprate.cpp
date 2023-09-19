@@ -195,7 +195,7 @@ int main(int argc, char* argv[]) {
 
   // If read in posterior draws for beta and running fullrank algorithm
   // then there is no need to read in anything else so just run RATE.
-  Eigen::VectorXd col_means_beta;
+  std::vector<double> col_means_beta;
   std::unique_ptr<CovMat> cov_beta_ptr;
   if (run_fullrank) {
       // Read in the posterior draws
@@ -224,7 +224,7 @@ int main(int argc, char* argv[]) {
 
       cov_beta_ptr.reset(new FullrankCovMat());
       static_cast<FullrankCovMat*>(cov_beta_ptr.get())->fill(posterior_draws);
-      col_means_beta = std::move(col_means(posterior_draws));
+      col_means_beta = std::move(col_means2(posterior_draws));
   }
 
   // Otherwise running lowrank algorithm

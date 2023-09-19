@@ -119,6 +119,15 @@ inline Eigen::VectorXd col_means(const Eigen::MatrixXd &mat) {
     return mat.colwise().mean();
 }
 
+inline std::vector<double> col_means2(const Eigen::MatrixXd &mat) {
+    const Eigen::VectorXd &col_means = mat.colwise().mean();
+    std::vector<double> ret(col_means.size());
+    for (size_t i = 0; i < ret.size(); ++i) {
+	ret[i] = col_means(i);
+    }
+    return ret;
+}
+
 inline double get_alpha(const CovMat &cov_beta, const std::vector<double> &log_u, const size_t predictor_id) {
     // TODO tests
 
@@ -187,8 +196,15 @@ inline Eigen::MatrixXd approximate_cov_beta(const Eigen::MatrixXd &f_draws, cons
     return tmp.sparseView();
 }
 
-inline Eigen::VectorXd approximate_beta_means(const Eigen::MatrixXd &f_draws, const Eigen::MatrixXd &u, const Eigen::MatrixXd &v) {
-    return v*u*col_means(f_draws);
+inline std::vector<double> approximate_beta_means(const Eigen::MatrixXd &f_draws, const Eigen::MatrixXd &u, const Eigen::MatrixXd &v) {
+    const Eigen::VectorXd &col_means_f = col_means(f_draws);
+    const Eigen::VectorXd &approximate_col_means = v*u*col_means_f;
+    std::vector<double> ret(approximate_col_means.size(), 0.0);
+#pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < approximate_col_means.size(); ++i) {
+	ret[i] = approximate_col_means(i);
+    }
+    return ret;
 }
 
 template <typename T>
@@ -222,7 +238,7 @@ Eigen::SparseMatrix<T> vec_to_sparse_matrix(const std::vector<V> &vec, const siz
     return mat;
 }
 
-inline std::vector<double> run_RATE(const Eigen::VectorXd &col_means_beta, const CovMat &cov_beta,
+inline std::vector<double> run_RATE(const std::vector<double> &col_means_beta, const CovMat &cov_beta,
 		      const std::vector<size_t> &ids_to_test, const size_t id_start, const size_t id_end, const size_t n_snps) {
     std::vector<double> log_KLD(n_snps, -36.84136); // log(1e-16) = -36.84136
 
