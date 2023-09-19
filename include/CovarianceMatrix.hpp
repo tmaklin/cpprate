@@ -144,7 +144,7 @@ class CovMat {
 public:
     virtual std::vector<double> get_col(const size_t col_id) const =0;
     virtual const std::vector<double>& get_flat_lambda() const =0;
-    virtual const double get_U_val(const std::vector<double> &tmp, const size_t i, const size_t j) const =0;
+    virtual double get_U_val(const std::vector<double> &tmp, const size_t i, const size_t j) const =0;
 };
 
 class FullrankCovMat : public CovMat {
@@ -158,7 +158,7 @@ public:
     FullrankCovMat() = default;
 
     const std::vector<double>& get_flat_lambda() const override { return this->flat_Lambda; }
-    const double get_U_val(const std::vector<double> &cov_beta_col, const size_t i, const size_t j) const override {
+    double get_U_val(const std::vector<double> &cov_beta_col, const size_t i, const size_t j) const override {
 	size_t col_start = i * this->dim - i * (i - 1)/2 - i;
 	double log_val = cov_beta_col[i] + cov_beta_col[j] + this->flat_Lambda[col_start + i];
 	return this->flat_Lambda[col_start + i]/(this->flat_Lambda[col_start + i] + log_val - std::log1p(std::exp(log_val)));
@@ -198,7 +198,7 @@ private:
     Eigen::MatrixXd log_svd_V;
     std::vector<double> flat_Lambda;
 
-    const double get_U_val(const std::vector<double> &cov_beta_col, const size_t i, const size_t j) const override {
+    double get_U_val(const std::vector<double> &cov_beta_col, const size_t i, const size_t j) const override {
 	size_t col_start = i * this->dim - i * (i - 1)/2 - i;
 	return this->flat_Lambda[col_start + i]/(cov_beta_col[i] + cov_beta_col[j]);
     }
