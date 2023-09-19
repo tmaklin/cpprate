@@ -238,19 +238,26 @@ Eigen::SparseMatrix<T> vec_to_sparse_matrix(const std::vector<V> &vec, const siz
     return mat;
 }
 
-inline std::vector<double> run_RATE(const std::vector<double> &col_means_beta, const CovMat &cov_beta,
-		      const std::vector<size_t> &ids_to_test, const size_t id_start, const size_t id_end, const size_t n_snps) {
+inline std::vector<double> run_RATE(const std::vector<double> &col_means_beta, const std::shared_ptr<CovMat> &cov_beta_ptr,
+				    const std::vector<size_t> &ids_to_test, const size_t id_start, const size_t id_end, const size_t n_snps,
+				    const size_t n_threads = 0) {
     std::vector<double> log_KLD(n_snps, -36.84136); // log(1e-16) = -36.84136
-
+#if defined(CPPRATE_OPENMP_SUPPORT) && (CPPRATE_OPENMP_SUPPORT) == 1
+    if (n_threads > 0) {
+	omp_set_num_threads(n_threads);
+    }
+#endif
     bool test_in_order = ids_to_test.size() == 0;
     size_t start = test_in_order ? id_start : 0;
     size_t end = test_in_order ? id_end : ids_to_test.size();
+    size_t log_KLD_index = 0;
     for (size_t i = start; i < end; ++i) {
 	const size_t snp_id = test_in_order ? i : ids_to_test[i];
-	const std::vector<double> &cov_beta_col = cov_beta.get_col(snp_id);
-	const double log_alpha = get_alpha(cov_beta, cov_beta_col, snp_id);
+	const std::vector<double> &cov_beta_col = cov_beta_ptr.get()->get_col(snp_id);
+	const double log_alpha = get_alpha(*cov_beta_ptr.get(), cov_beta_col, snp_id);
 	const double log_m = std::log(std::abs(col_means_beta[snp_id]) + 1e-16);
-	log_KLD[snp_id] = log_m + log_m + log_alpha + std::log(0.5);
+	log_KLD[log_KLD_index] = log_m + log_m + log_alpha + std::log(0.5);
+	++log_KLD_index;
     }
     return log_KLD;
 }

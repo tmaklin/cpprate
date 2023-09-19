@@ -41,6 +41,7 @@
 #include <exception>
 
 #include "bxzstr.hpp"
+#include "BS_thread_pool.hpp"
 
 #include "CppRateRes.hpp"
 #include "CovarianceMatrix.hpp"
@@ -196,7 +197,7 @@ int main(int argc, char* argv[]) {
   // If read in posterior draws for beta and running fullrank algorithm
   // then there is no need to read in anything else so just run RATE.
   std::vector<double> col_means_beta;
-  std::unique_ptr<CovMat> cov_beta_ptr;
+  std::shared_ptr<CovMat> cov_beta_ptr;
   if (run_fullrank) {
       // Read in the posterior draws
       Eigen::MatrixXd posterior_draws;
@@ -270,14 +271,40 @@ int main(int argc, char* argv[]) {
        static_cast<LowrankCovMat*>(cov_beta_ptr.get())->logarithmize_svd_V();
   }
     
+  BS::thread_pool pool(n_threads);
+  std::vector<std::future<std::vector<double>>> thread_futures;
+
   size_t id_start = std::max((args.value<size_t>("id-start") == 0 ? 0 : args.value<size_t>("id-start") - 1), (size_t)0);
   size_t id_end = std::min((args.value<size_t>("id-end") == 0 ? n_snps : args.value<size_t>("id-end")), n_snps);
 
-  // Run RATE
-  const std::vector<double> &log_KLD = run_RATE(col_means_beta, *cov_beta_ptr.get(), args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_snps);
+  std::vector<size_t> snps_per_rank(n_threads, std::floor((id_end - id_start)/(double)n_threads));
+  size_t n_snps_remainder = (id_end - id_start) - n_threads * snps_per_rank[0];
+  for (size_t i = 0; i < n_snps_remainder; ++i) {
+      snps_per_rank[i] += 1;
+  }
+
+  size_t n_processed = 0;
+  for (size_t thread_id = 0; thread_id < n_threads; ++thread_id) {
+      size_t thread_start_at = n_processed;
+      size_t thread_stop_at = snps_per_rank[thread_id] + n_processed;
+      n_processed += snps_per_rank[thread_id];
+      size_t thread_n_snps = thread_stop_at - thread_start_at;
+      thread_futures.emplace_back(pool.submit(run_RATE, col_means_beta, cov_beta_ptr,
+					      args.value<std::vector<size_t>>("ids-to-test"), thread_start_at, thread_stop_at, thread_n_snps, n_threads_per_snp));
+  }
+
+  size_t global_index = 0;
+  std::vector<double> log_KLD_global(n_snps, -36.84136);
+  for (size_t thread_id = 0; thread_id < n_threads; ++thread_id) {
+      const std::vector<double> &log_KLD_local = thread_futures[thread_id].get();
+      for (size_t i = 0; i < log_KLD_local.size(); ++i) {
+	  log_KLD_global[global_index] = log_KLD_local[i];
+	  ++global_index;
+      }
+  }
 
   // Print results
-  print_results(RATEd(log_KLD), n_snps);
+  print_results(RATEd(log_KLD_global), n_snps);
 
   return 0;
 }
