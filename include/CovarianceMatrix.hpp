@@ -78,7 +78,6 @@ inline Eigen::MatrixXd decompose_covariance_matrix(const Eigen::MatrixXd &covari
     }
 
     size_t n_rows_D = svd.matrixU().rows();
-    size_t n_cols_D = svd.matrixU().cols();
     Eigen::MatrixXd u(num_r_D_set, n_rows_D);
     for (size_t i = 0; i < num_r_D_set; ++i) {
 	for (size_t j = 0; j < n_rows_D; ++j) {

@@ -206,8 +206,6 @@ int main(int argc, char* argv[]) {
   // then there is no need to read in anything else so just run RATE.
   std::unique_ptr<CovMat> cov_beta_ptr;
   if (from_beta_draws && run_fullrank) {
-      size_t id_start = std::max((args.value<size_t>("id-start") == 0 ? 0 : args.value<size_t>("id-start") - 1), (size_t)0);
-      size_t id_end = std::min((args.value<size_t>("id-end") == 0 ? n_obs_draws : args.value<size_t>("id-end")), n_obs_draws);
       cov_beta_ptr.reset(new FullrankCovMat());
       static_cast<FullrankCovMat*>(cov_beta_ptr.get())->fill(posterior_draws);
       posterior_draws = std::move(col_means(posterior_draws));
@@ -227,10 +225,6 @@ int main(int argc, char* argv[]) {
       if (n_obs_X != n_obs_draws) {
 	  throw std::runtime_error("Number of rows in file " + args.value<std::string>('x') + " (" + std::to_string(n_obs_X) + ") does not match number of columns in file " + args.value<std::string>('f') + " (" + std::to_string(n_obs_draws) + ").");
       }
-
-      // Run fullrank RATE
-      size_t id_start = std::max((args.value<size_t>("id-start") == 0 ? 0 : args.value<size_t>("id-start") - 1), (size_t)0);
-      size_t id_end = std::min((args.value<size_t>("id-end") == 0 ? n_snps : args.value<size_t>("id-end")), n_snps);
 
       cov_beta_ptr.reset(new FullrankCovMat());
       static_cast<FullrankCovMat*>(cov_beta_ptr.get())->fill(posterior_draws);
@@ -276,7 +270,7 @@ int main(int argc, char* argv[]) {
   size_t id_end = std::min((args.value<size_t>("id-end") == 0 ? n_snps : args.value<size_t>("id-end")), n_snps);
 
   // Run RATE
-  const std::vector<double> &log_KLD = run_RATE(posterior_draws, *cov_beta_ptr.get(), args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_snps, n_threads, n_threads_per_snp);
+  const std::vector<double> &log_KLD = run_RATE(posterior_draws, *cov_beta_ptr.get(), args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_snps);
 
   // Print results
   print_results(RATEd(log_KLD), n_snps);

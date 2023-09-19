@@ -126,7 +126,6 @@ inline double get_alpha(const CovMat &cov_beta, const std::vector<double> &log_u
     std::vector<double> predictor_col(dim);
 #pragma omp parallel for schedule(static)
     for (size_t i = 0; i < dim; ++i) {
-	size_t col_start = i * dim - i * (i - 1)/2 - i;
 	predictor_col[i] = cov_beta.get_U_val(log_u, i, i);
     }
 
@@ -137,7 +136,6 @@ inline double get_alpha(const CovMat &cov_beta, const std::vector<double> &log_u
 	std::vector<double> res_vec(dim, 0.0);
 	if (j != predictor_id) {
 	    double max_elem = 0.0;
-	    size_t col_start = j * dim - j * (j - 1)/2 - j;
 
 	    res_vec[predictor_id] += predictor_col[j] + predictor_col[j] + predictor_col[j];
 	    max_elem = (max_elem > res_vec[predictor_id] ? max_elem : res_vec[predictor_id]);
@@ -225,8 +223,7 @@ Eigen::SparseMatrix<T> vec_to_sparse_matrix(const std::vector<V> &vec, const siz
 }
 
 inline std::vector<double> run_RATE(const Eigen::VectorXd &col_means_beta, const CovMat &cov_beta,
-		      const std::vector<size_t> &ids_to_test, const size_t id_start, const size_t id_end, const size_t n_snps,
-		      const size_t n_ranks = 1, const size_t n_threads = 1) {
+		      const std::vector<size_t> &ids_to_test, const size_t id_start, const size_t id_end, const size_t n_snps) {
     std::vector<double> log_KLD(n_snps, -36.84136); // log(1e-16) = -36.84136
 
     bool test_in_order = ids_to_test.size() == 0;
