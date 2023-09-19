@@ -55,8 +55,8 @@ bool parse_args(int argc, char* argv[], cxxargs::Arguments &args) {
     args.add_short_argument<std::string>('f', "f-draws file (comma separated)");
     args.add_short_argument<std::string>('x', "design matrix (comma separated)");
     args.add_long_argument<std::string>("beta-draws", "beta-draws file (comma separated)");
-    args.add_short_argument<size_t>('t', "Number of SNPs to process in parallel (default: 1)", 1);
-    args.add_long_argument<size_t>("threads-per-snp", "Number of threads to use per SNP (default: 1)", 1);
+    args.add_short_argument<size_t>('t', "Number of threads to use per SNP (default: 1)", 1);
+    args.add_long_argument<size_t>("ranks", "Number of SNPs to process in parallel (default: 1)", 1);
     args.add_long_argument<std::vector<size_t>>("ids-to-test", "Comma-separated list of variable ids to test (optional)", std::vector<size_t>());
     args.add_long_argument<size_t>("id-start", "Test variables with id equal to or higher than `id-start` (optional)", 0);
     args.add_long_argument<size_t>("id-end", "Test variables with id equal to or less than `id-end` (optional)", 0);
@@ -175,16 +175,16 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
+  size_t n_ranks = args.value<size_t>("ranks");
   size_t n_threads = args.value<size_t>('t');
-  size_t n_threads_per_snp = args.value<size_t>("threads-per-snp");
 
 #if defined(CPPRATE_OPENMP_SUPPORT) && (CPPRATE_OPENMP_SUPPORT) == 1
   // Use all available threads to do the linear algebra
-  omp_set_num_threads(n_threads * n_threads_per_snp);
+  omp_set_num_threads(n_ranks * n_threads);
 #else
   // Warn about ignored argument
-  if (n_threads_per_snp > 1) {
-      std::cerr << "WARNING: the `--n-threads-per-snp` argument is ignored (cpprate was compiled without OpenMP support)." << std::endl;
+  if (n_threads > 1) {
+      std::cerr << "WARNING: the `-t` argument is ignored (cpprate was compiled without OpenMP support). Use `--ranks`." << std::endl;
   }
 #endif
 
@@ -270,32 +270,32 @@ int main(int argc, char* argv[]) {
        static_cast<LowrankCovMat*>(cov_beta_ptr.get())->logarithmize_lambda();
        static_cast<LowrankCovMat*>(cov_beta_ptr.get())->logarithmize_svd_V();
   }
-    
-  BS::thread_pool pool(n_threads);
+
+  BS::thread_pool pool(n_ranks);
   std::vector<std::future<std::vector<double>>> thread_futures;
 
   size_t id_start = std::max((args.value<size_t>("id-start") == 0 ? 0 : args.value<size_t>("id-start") - 1), (size_t)0);
   size_t id_end = std::min((args.value<size_t>("id-end") == 0 ? n_snps : args.value<size_t>("id-end")), n_snps);
 
-  std::vector<size_t> snps_per_rank(n_threads, std::floor((id_end - id_start)/(double)n_threads));
-  size_t n_snps_remainder = (id_end - id_start) - n_threads * snps_per_rank[0];
+  std::vector<size_t> snps_per_rank(n_ranks, std::floor((id_end - id_start)/(double)n_ranks));
+  size_t n_snps_remainder = (id_end - id_start) - n_ranks * snps_per_rank[0];
   for (size_t i = 0; i < n_snps_remainder; ++i) {
       snps_per_rank[i] += 1;
   }
 
   size_t n_processed = 0;
-  for (size_t thread_id = 0; thread_id < n_threads; ++thread_id) {
+  for (size_t thread_id = 0; thread_id < n_ranks; ++thread_id) {
       size_t thread_start_at = n_processed;
       size_t thread_stop_at = snps_per_rank[thread_id] + n_processed;
       n_processed += snps_per_rank[thread_id];
       size_t thread_n_snps = thread_stop_at - thread_start_at;
       thread_futures.emplace_back(pool.submit(run_RATE, col_means_beta, cov_beta_ptr,
-					      args.value<std::vector<size_t>>("ids-to-test"), thread_start_at, thread_stop_at, thread_n_snps, n_threads_per_snp));
+					      args.value<std::vector<size_t>>("ids-to-test"), thread_start_at, thread_stop_at, thread_n_snps, n_threads));
   }
 
   size_t global_index = 0;
   std::vector<double> log_KLD_global(n_snps, -36.84136);
-  for (size_t thread_id = 0; thread_id < n_threads; ++thread_id) {
+  for (size_t thread_id = 0; thread_id < n_ranks; ++thread_id) {
       const std::vector<double> &log_KLD_local = thread_futures[thread_id].get();
       for (size_t i = 0; i < log_KLD_local.size(); ++i) {
 	  log_KLD_global[global_index] = log_KLD_local[i];
