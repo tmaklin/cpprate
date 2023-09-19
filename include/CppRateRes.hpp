@@ -224,7 +224,7 @@ Eigen::SparseMatrix<T> vec_to_sparse_matrix(const std::vector<V> &vec, const siz
     return mat;
 }
 
-inline RATEd run_RATE(const Eigen::VectorXd &col_means_beta, const CovMat &cov_beta,
+inline std::vector<double> run_RATE(const Eigen::VectorXd &col_means_beta, const CovMat &cov_beta,
 		      const std::vector<size_t> &ids_to_test, const size_t id_start, const size_t id_end, const size_t n_snps,
 		      const size_t n_ranks = 1, const size_t n_threads = 1) {
     std::vector<double> log_KLD(n_snps, -36.84136); // log(1e-16) = -36.84136
@@ -239,7 +239,7 @@ inline RATEd run_RATE(const Eigen::VectorXd &col_means_beta, const CovMat &cov_b
 	const double log_m = std::log(std::abs(col_means_beta[snp_id]) + 1e-16);
 	log_KLD[snp_id] = log_m + log_m + log_alpha + std::log(0.5);
     }
-    return RATEd(log_KLD);
+    return log_KLD;
 }
 
 #endif

@@ -276,10 +276,10 @@ int main(int argc, char* argv[]) {
   size_t id_end = std::min((args.value<size_t>("id-end") == 0 ? n_snps : args.value<size_t>("id-end")), n_snps);
 
   // Run RATE
-  RATEd res = run_RATE(posterior_draws, *cov_beta_ptr.get(), args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_snps, n_threads, n_threads_per_snp);
+  const std::vector<double> &log_KLD = run_RATE(posterior_draws, *cov_beta_ptr.get(), args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_snps, n_threads, n_threads_per_snp);
 
   // Print results
-  print_results(res, n_snps);
+  print_results(RATEd(log_KLD), n_snps);
 
   return 0;
 }
