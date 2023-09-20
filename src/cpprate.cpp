@@ -266,7 +266,6 @@ int main(int argc, char* argv[]) {
   }
 
   if (!run_fullrank) {
-       static_cast<LowrankCovMat*>(cov_beta_ptr.get())->fill();
        static_cast<LowrankCovMat*>(cov_beta_ptr.get())->logarithmize_lambda();
        static_cast<LowrankCovMat*>(cov_beta_ptr.get())->logarithmize_svd_V();
   }

@@ -279,9 +279,6 @@ public:
 	this->log_f_Lambda = std::move(res);
     }
 
-    void fill() {
-    }
-
     void logarithmize_lambda() {
 #pragma omp parallel for schedule(static)
 	for (Eigen::Index i = 0; i < this->log_f_Lambda.cols(); ++i) {
