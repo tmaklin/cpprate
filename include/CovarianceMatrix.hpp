@@ -265,11 +265,17 @@ public:
 	for (size_t j = 0; j < cols; ++j) {
 	    size_t col_start = j * cols - j * (j - 1)/2 - j;
 	    for (size_t i = 0; i < rows; ++i) {
-		double f_l_val = this->log_f_Lambda(i, j) * rhs.col(j).sum();
+		double f_l_val = std::exp(std::log(std::abs(this->log_f_Lambda(i, j) + 1e-16)) + std::log(std::abs(rhs.col(j).sum()) + 1e-16));
 		this->flat_Lambda[col_start + i] += f_l_val;
-		res(i, j) += f_l_val * tmp.col(j).sum();
+		res(i, j) += std::log(std::abs(f_l_val + 1e-16)) + std::log(std::abs(tmp.col(j).sum()) + 1e-16);
 		this->log_v_Sigma_star(i, j) = std::log(std::abs(this->log_v_Sigma_star(i, j)) + 1e-16) + std::log(std::abs(this->log_f_Lambda(i, j)) + 1e-16);		}
 	}
+
+#pragma omp parallel for schedule(static)
+	for (size_t j = 0; j < this->flat_Lambda.size(); ++j) {
+	    this->flat_Lambda[j] = std::log(std::abs(this->flat_Lambda[j]) + 1e-16);
+	}
+
 	this->log_f_Lambda = std::move(res);
     }
 
