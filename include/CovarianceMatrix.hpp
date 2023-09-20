@@ -248,31 +248,35 @@ public:
 
     LowrankCovMat() = default;
     void construct(const Eigen::MatrixXd &proj_f_draws, const size_t svd_rank) {
-	this->log_v_Sigma_star = std::move(this->log_svd_V*proj_f_draws.triangularView<Eigen::Lower>());
-	this->dim = log_v_Sigma_star.rows();
-
 	// log_f_lambda = Lambda_chol
 	this->log_f_Lambda = std::move(decompose_covariance_approximation(proj_f_draws, this->log_svd_V, svd_rank));
 
+	this->log_v_Sigma_star = std::move(this->log_svd_V*proj_f_draws.triangularView<Eigen::Lower>());
+	this->dim = log_v_Sigma_star.rows();
+
+	const Eigen::MatrixXd &rhs = this->log_f_Lambda;
+	size_t rows = this->log_f_Lambda.rows();
+	size_t cols = this->log_f_Lambda.cols();
+	Eigen::MatrixXd res = Eigen::MatrixXd::Zero(rows, cols);
+	const Eigen::MatrixXd &tmp = this->log_v_Sigma_star;
+	this->flat_Lambda = std::vector<double>(rows * (rows + 1)/2, 0.0);
+
+#pragma omp parallel for schedule(static)
+	for (size_t j = 0; j < cols; ++j) {
+	    size_t col_start = j * cols - j * (j - 1)/2 - j;
+	    for (size_t i = 0; i < rows; ++i) {
+		for (size_t k = 0; k < rows; ++k) {
+		    this->flat_Lambda[col_start + i] += this->log_f_Lambda(i, j) * rhs(k, j);
+		}
+		for (size_t k = 0; k < rows; ++k) {
+		    res(i, j) += this->flat_Lambda[col_start + i] * tmp(k, j);
+		}
+		this->log_v_Sigma_star(i, j) = std::log(std::abs(this->log_v_Sigma_star(i, j)) + 1e-16) + std::log(std::abs(this->log_f_Lambda(i, j)) + 1e-16);		}
+	}
+	this->log_f_Lambda = std::move(res);
     }
 
     void fill() {
-	Eigen::MatrixXd Lambda_chol = std::move(this->log_f_Lambda);
-	this->log_f_Lambda = Eigen::MatrixXd::Zero(Lambda_chol.rows(), Lambda_chol.rows());
-
-	// Lambda = Lambda_chol * t(Lambda_chol)
-	this->log_f_Lambda.template selfadjointView<Eigen::Lower>().rankUpdate(Lambda_chol);
-
-	this->flat_Lambda = log_flatten_triangular(this->log_f_Lambda);
-
-	this->log_f_Lambda *= this->log_v_Sigma_star.triangularView<Eigen::Lower>();
-
-#pragma omp parallel for schedule(static)
-	for (Eigen::Index i = 0; i < this->log_v_Sigma_star.cols(); ++i) {
-	    for (Eigen::Index j = 0; j < this->log_v_Sigma_star.rows(); ++j) {
-		this->log_v_Sigma_star(j, i) = std::log(std::abs(this->log_v_Sigma_star(j, i)) + 1e-16) + std::log(std::abs(Lambda_chol(j, i)) + 1e-16);
-	    }
-	}
     }
 
     void logarithmize_lambda() {
