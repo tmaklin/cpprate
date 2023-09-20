@@ -265,12 +265,9 @@ public:
 	for (size_t j = 0; j < cols; ++j) {
 	    size_t col_start = j * cols - j * (j - 1)/2 - j;
 	    for (size_t i = 0; i < rows; ++i) {
-		for (size_t k = 0; k < rows; ++k) {
-		    this->flat_Lambda[col_start + i] += this->log_f_Lambda(i, j) * rhs(k, j);
-		}
-		for (size_t k = 0; k < rows; ++k) {
-		    res(i, j) += this->flat_Lambda[col_start + i] * tmp(k, j);
-		}
+		double f_l_val = this->log_f_Lambda(i, j) * rhs.col(j).sum();
+		this->flat_Lambda[col_start + i] += f_l_val;
+		res(i, j) += f_l_val * tmp.col(j).sum();
 		this->log_v_Sigma_star(i, j) = std::log(std::abs(this->log_v_Sigma_star(i, j)) + 1e-16) + std::log(std::abs(this->log_f_Lambda(i, j)) + 1e-16);		}
 	}
 	this->log_f_Lambda = std::move(res);
