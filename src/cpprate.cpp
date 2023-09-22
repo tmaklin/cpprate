@@ -38,10 +38,14 @@
 #include <string>
 #include <cstddef>
 #include <algorithm>
+#include <exception>
 
 #include "bxzstr.hpp"
+#include "BS_thread_pool.hpp"
 
 #include "CppRateRes.hpp"
+#include "CovarianceMatrix.hpp"
+#include "RATE_res.hpp"
 
 bool CmdOptionPresent(char **begin, char **end, const std::string &option) {
   return (std::find(begin, end, option) != end);
@@ -51,7 +55,8 @@ bool parse_args(int argc, char* argv[], cxxargs::Arguments &args) {
     args.add_short_argument<std::string>('f', "f-draws file (comma separated)");
     args.add_short_argument<std::string>('x', "design matrix (comma separated)");
     args.add_long_argument<std::string>("beta-draws", "beta-draws file (comma separated)");
-    args.add_short_argument<size_t>('t', "Number of threads to use (default: 1)", 1);
+    args.add_short_argument<size_t>('t', "Number of threads to use per SNP (default: 1)", 1);
+    args.add_long_argument<size_t>("ranks", "Number of SNPs to process in parallel (default: 1)", 1);
     args.add_long_argument<std::vector<size_t>>("ids-to-test", "Comma-separated list of variable ids to test (optional)", std::vector<size_t>());
     args.add_long_argument<size_t>("id-start", "Test variables with id equal to or higher than `id-start` (optional)", 0);
     args.add_long_argument<size_t>("id-end", "Test variables with id equal to or less than `id-end` (optional)", 0);
@@ -69,7 +74,7 @@ bool parse_args(int argc, char* argv[], cxxargs::Arguments &args) {
     }
 
     // TODO stop if all three are present
-    if (CmdOptionPresent(argv, argv+argc, "--beta-draws") && CmdOptionPresent(argv, argv+argc, "--fullrank")) {
+    if (CmdOptionPresent(argv, argv+argc, "--beta-draws") && (!CmdOptionPresent(argv, argv+argc, "-x") || args.value<bool>("fullrank"))) {
 	args.set_not_required('f');
 	args.set_not_required('x');
     } else if (CmdOptionPresent(argv, argv+argc, "--beta-draws") && CmdOptionPresent(argv, argv+argc, "-x")) {
@@ -82,9 +87,11 @@ bool parse_args(int argc, char* argv[], cxxargs::Arguments &args) {
     return false;
 }
 
-void read_nonlinear(size_t *n_snps, std::istream *f_draws_file, std::istream *design_matrix_file, Eigen::MatrixXd *f_draws_mat, Eigen::SparseMatrix<double> *design_matrix_mat) {
-    // TODO split into read_f_draws and read_design_matrix
-    size_t n_obs = 0;
+void read_design_matrix(std::istream *design_matrix_file, size_t *n_snps, size_t *n_obs, Eigen::SparseMatrix<double> *design_matrix_mat) {
+    // Reset just in case
+    *n_obs = 0;
+    *n_snps = 0;
+
     std::vector<bool> X;
     std::string line;
     bool first_line = true;
@@ -98,41 +105,59 @@ void read_nonlinear(size_t *n_snps, std::istream *f_draws_file, std::istream *de
 	while(std::getline(parts, part, ',')) {
 	    X.emplace_back((bool)std::stol(part));
 	}
-	++n_obs;
+	++(*n_obs);
     }
-    *design_matrix_mat = std::move(vec_to_sparse_matrix<double, bool>(X, n_obs, *n_snps));
-
-    size_t n_f_draws = 0;
-    std::vector<double> f_draws;
-    while (std::getline(*f_draws_file, line)) {
-	std::stringstream parts(line);
-	std::string part;
-	while(std::getline(parts, part, ',')) {
-	    f_draws.emplace_back(std::stold(part));
-	}
-	++n_f_draws;
-    }
-    *f_draws_mat = std::move(vec_to_dense_matrix(f_draws, n_f_draws, n_obs));
+    *design_matrix_mat = std::move(vec_to_sparse_matrix<double, bool>(X, *n_obs, *n_snps));
 }
 
-void read_beta_draws(size_t *n_snps, std::istream *beta_draws_file, Eigen::MatrixXd *beta_draws_mat) {
-    std::vector<double> beta_draws;
-    size_t n_posterior_draws = 0;
+void read_posterior_draws(std::istream *posterior_draws_file, size_t *n_draws, size_t *n_obs, Eigen::MatrixXd *posterior_draws_mat) {
+    *n_draws = 0;
+    *n_obs = 0;
+    std::vector<double> posterior_draws;
     std::string line;
     bool first_line = true;
-    while (std::getline(*beta_draws_file, line)) {
+    while (std::getline(*posterior_draws_file, line)) {
 	if (first_line) {
-	    *n_snps = std::count(line.begin(), line.end(), ',') + 1;
+	    *n_obs = std::count(line.begin(), line.end(), ',') + 1;
 	    first_line = false;
 	}
 	std::stringstream parts(line);
 	std::string part;
 	while(std::getline(parts, part, ',')) {
-	    beta_draws.emplace_back(std::stold(part));
+	    posterior_draws.emplace_back(std::stold(part));
 	}
-	++n_posterior_draws;
+	++(*n_draws);
     }
-    *beta_draws_mat = std::move(vec_to_dense_matrix(beta_draws, n_posterior_draws, *n_snps));
+    *posterior_draws_mat = std::move(vec_to_dense_matrix(posterior_draws, *n_draws, *n_obs));
+}
+
+void read_nonlinear_coefficients(std::istream *design_matrix_file, size_t *n_snps, size_t *n_obs, Eigen::MatrixXd *posterior_draws) {
+    Eigen::SparseMatrix<double> design_matrix;
+    read_design_matrix(design_matrix_file, n_snps, n_obs, &design_matrix);
+    *posterior_draws = std::move(nonlinear_coefficients(design_matrix, *posterior_draws));
+}
+
+void print_results(const RATEd &res, const size_t n_snps) {
+    std::cout << "#ESS: " << res.ESS << '\n';
+    std::cout << "#Delta: " << res.Delta << '\n';
+    std::cout << "#snp_id\tRATE\tKLD\n";
+    for (size_t i = 0; i < n_snps; ++i) {
+	std::cout << i << '\t' << res.RATE[i] << '\t' << res.KLD[i] << '\n';
+    }
+    std::cout << std::endl;
+}
+
+Eigen::SparseMatrix<double> read_decomposition(const std::string &design_matrix_file, const size_t svd_rank, const double prop_var,
+			size_t *n_snps, size_t *n_obs, Eigen::MatrixXd *svd_U, Eigen::MatrixXd *svd_V) {
+      Eigen::SparseMatrix<double> design_matrix;
+      bxz::ifstream design_matrix_in(design_matrix_file);
+      read_design_matrix(&design_matrix_in, n_snps, n_obs, &design_matrix);
+      design_matrix_in.close();
+
+      size_t decomposition_rank = (svd_rank == 0 ? std::min(*n_snps, *n_obs) : svd_rank);
+      decompose_design_matrix(design_matrix, decomposition_rank, prop_var, svd_U, svd_V);
+
+      return design_matrix;
 }
 
 int main(int argc, char* argv[]) {
@@ -150,79 +175,135 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
+  size_t n_ranks = args.value<size_t>("ranks");
+  size_t n_threads = args.value<size_t>('t');
+
 #if defined(CPPRATE_OPENMP_SUPPORT) && (CPPRATE_OPENMP_SUPPORT) == 1
-  omp_set_num_threads(args.value<size_t>('t'));
+  // Use all available threads to do the linear algebra
+  omp_set_num_threads(n_ranks * n_threads);
+#else
+  // Warn about ignored argument
+  if (n_threads > 1) {
+      std::cerr << "WARNING: the `-t` argument is ignored (cpprate was compiled without OpenMP support). Use `--ranks`." << std::endl;
+  }
 #endif
 
+  // Check what mode we're running in
   bool from_beta_draws = CmdOptionPresent(argv, argv+argc, "--beta-draws");
-  bool lowrank_beta_draws = CmdOptionPresent(argv, argv+argc, "--beta-draws") && CmdOptionPresent(argv, argv+argc, "-x");
+  bool run_fullrank = args.value<bool>("fullrank") || (from_beta_draws && !CmdOptionPresent(argv, argv+argc, "-x"));
 
-  size_t n_snps = 0;
+  size_t low_rank_rank = args.value<size_t>("low-rank");
 
-  Eigen::MatrixXd posterior_draws;
-  Eigen::SparseMatrix<double> design_matrix;
-  if (!from_beta_draws) {
-      bxz::ifstream in(args.value<std::string>('f'));
-      bxz::ifstream in2(args.value<std::string>('x'));
-      read_nonlinear(&n_snps, &in, &in2, &posterior_draws, &design_matrix);
-      in.close();
-      in2.close();
-  } else if (from_beta_draws && !lowrank_beta_draws) {
-      bxz::ifstream in(args.value<std::string>("beta-draws"));
-      read_beta_draws(&n_snps, &in, &posterior_draws);
-      in.close();
-  } else if (from_beta_draws && lowrank_beta_draws) {
-      bxz::ifstream in(args.value<std::string>("beta-draws"));
-      bxz::ifstream design_matrix_file(args.value<std::string>('x'));
-      read_beta_draws(&n_snps, &in, &posterior_draws);
-      in.close();
+  // If read in posterior draws for beta and running fullrank algorithm
+  // then there is no need to read in anything else so just run RATE.
+  std::vector<double> col_means_beta;
+  std::shared_ptr<CovMat> cov_beta_ptr;
+  if (run_fullrank) {
+      // Read in the posterior draws
+      Eigen::MatrixXd posterior_draws;
+      size_t n_draws = 0;
+      size_t n_obs_draws = 0;
+      bxz::ifstream posterior_draws_in((from_beta_draws ? args.value<std::string>("beta-draws") : args.value<std::string>('f')));
+      read_posterior_draws(&posterior_draws_in, &n_draws, &n_obs_draws, &posterior_draws);
+      posterior_draws_in.close();
 
-      size_t n_obs = 0;
-      std::vector<bool> X;
-      std::string line;
-      bool first_line = true;
-      while (std::getline(design_matrix_file, line)) {
-	  if (first_line) {
-	      first_line = false;
+      // If running fullrank algorithm on f draws we also need to read the design matrix
+      if (!from_beta_draws) {
+	  // Read in the design matrix
+	  size_t n_snps = 0;
+	  size_t n_obs_X = 0;
+	  bxz::ifstream design_matrix_in(args.value<std::string>('x'));
+	  // Next call will overwrite the f_draws currently stored in posterior_draws
+	  // with beta draws = f_draws * pseudoinverse(design_matrix)
+	  read_nonlinear_coefficients(&design_matrix_in, &n_snps, &n_obs_X, &posterior_draws);
+
+	  // Check that the input dimensions are correct
+	  if (n_obs_X != n_obs_draws) {
+	      throw std::runtime_error("Number of rows in file " + args.value<std::string>('x') + " (" + std::to_string(n_obs_X) + ") does not match number of columns in file " + args.value<std::string>('f') + " (" + std::to_string(n_obs_draws) + ").");
 	  }
-	  std::stringstream parts(line);
-	  std::string part;
-	  while(std::getline(parts, part, ',')) {
-	      X.emplace_back((bool)std::stol(part));
-	  }
-	  ++n_obs;
       }
-      design_matrix = std::move(vec_to_sparse_matrix<double, bool>(X, n_obs, n_snps));
-      design_matrix_file.close();
+
+      cov_beta_ptr.reset(new FullrankCovMat());
+      static_cast<FullrankCovMat*>(cov_beta_ptr.get())->fill(posterior_draws);
+      col_means_beta = std::move(col_means2(posterior_draws));
   }
+
+  // Otherwise running lowrank algorithm
+  size_t n_snps = 0;
+  if (!run_fullrank) {
+      // Read in the posterior draws
+      Eigen::MatrixXd posterior_draws;
+      size_t n_draws = 0;
+      size_t n_obs_draws = 0;
+      bxz::ifstream posterior_draws_in((from_beta_draws ? args.value<std::string>("beta-draws") : args.value<std::string>('f')));
+      read_posterior_draws(&posterior_draws_in, &n_draws, &n_obs_draws, &posterior_draws);
+      posterior_draws_in.close();
+
+      cov_beta_ptr.reset(new LowrankCovMat());
+      // Decompose the design matrix
+      Eigen::MatrixXd svd_design_matrix_U;
+      size_t n_obs;
+
+      if (from_beta_draws) {
+	  const Eigen::SparseMatrix<double> &design_matrix = read_decomposition(args.value<std::string>('x'), low_rank_rank, args.value<double>("prop-var"), &n_snps, &n_obs, &svd_design_matrix_U,  static_cast<LowrankCovMat*>(cov_beta_ptr.get())->get_svd_V_p()).transpose();
+	  posterior_draws *= design_matrix ;
+      } else {
+	  read_decomposition(args.value<std::string>('x'), low_rank_rank, args.value<double>("prop-var"), &n_snps, &n_obs, &svd_design_matrix_U,  static_cast<LowrankCovMat*>(cov_beta_ptr.get())->get_svd_V_p()) ;
+      }
+
+      // Check that the input dimensions are correct
+      if (n_snps != n_obs_draws && from_beta_draws) {
+	  throw std::runtime_error("Number of columns in file " + args.value<std::string>('x') + " (" + std::to_string(n_snps) + ") does not match number of columns in file " + args.value<std::string>("beta-draws") + " (" + std::to_string(n_obs_draws) + ").");
+      } else if (n_obs != n_obs_draws && !from_beta_draws) {
+	  throw std::runtime_error("Number of rows in file " + args.value<std::string>('x') + " (" + std::to_string(n_obs) + ") does not match number of columns in file " + args.value<std::string>('f') + " (" + std::to_string(n_obs_draws) + ").");
+      }
+
+      // If lowrank decomposition rank was supplied set it to minimum of the dimension of design_matrix
+      low_rank_rank = low_rank_rank == 0 ? std::min(n_snps, n_obs) : low_rank_rank;
+
+      static_cast<LowrankCovMat*>(cov_beta_ptr.get())->construct(project_f_draws(posterior_draws, svd_design_matrix_U), low_rank_rank);
+      col_means_beta = std::move(approximate_beta_means(posterior_draws, svd_design_matrix_U,  static_cast<LowrankCovMat*>(cov_beta_ptr.get())->get_svd_V()));
+  }
+
+  if (!run_fullrank) {
+       static_cast<LowrankCovMat*>(cov_beta_ptr.get())->logarithmize_lambda();
+       static_cast<LowrankCovMat*>(cov_beta_ptr.get())->logarithmize_svd_V();
+  }
+
+  BS::thread_pool pool(n_ranks);
+  std::vector<std::future<std::vector<double>>> thread_futures;
 
   size_t id_start = std::max((args.value<size_t>("id-start") == 0 ? 0 : args.value<size_t>("id-start") - 1), (size_t)0);
   size_t id_end = std::min((args.value<size_t>("id-end") == 0 ? n_snps : args.value<size_t>("id-end")), n_snps);
 
-  // TODO check that the snp ids in ids-to-test don't exceed the total n_snps or under 0
-
-  RATEd res;
-  if (args.value<bool>("fullrank") && !from_beta_draws) {
-      res = RATE_fullrank(posterior_draws, design_matrix, args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_snps);
-  } else if (!from_beta_draws) {
-      size_t svd_rank = args.value<size_t>("low-rank") == 0 ? std::min(design_matrix.rows(), design_matrix.cols()) : args.value<size_t>("low-rank");
-      res = RATE_lowrank(posterior_draws, design_matrix, args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_snps, svd_rank, args.value<double>("prop-var"));
-  } else if (from_beta_draws && lowrank_beta_draws) {
-      // Calculate predictions = X*B' to use the lowrank approximation
-      size_t svd_rank = args.value<size_t>("low-rank") == 0 ? std::min(design_matrix.rows(), design_matrix.cols()) : args.value<size_t>("low-rank");
-      Eigen::MatrixXd predictions = posterior_draws * design_matrix.transpose();
-      res = RATE_lowrank(predictions, design_matrix, args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_snps, svd_rank, args.value<double>("prop-var"));
-  } else if (from_beta_draws && args.value<bool>("fullrank")) {
-      res = RATE_beta_draws(posterior_draws, args.value<std::vector<size_t>>("ids-to-test"), id_start, id_end, n_snps);
+  std::vector<size_t> snps_per_rank(n_ranks, std::floor((id_end - id_start)/(double)n_ranks));
+  size_t n_snps_remainder = (id_end - id_start) - n_ranks * snps_per_rank[0];
+  for (size_t i = 0; i < n_snps_remainder; ++i) {
+      snps_per_rank[i] += 1;
   }
 
-  std::cout << "#ESS: " << res.ESS << '\n';
-  std::cout << "#Delta: " << res.Delta << '\n';
-  std::cout << "#snp_id\tRATE\tKLD\n";
-  for (size_t i = 0; i < n_snps; ++i) {
-      std::cout << i << '\t' << res.RATE[i] << '\t' << res.KLD[i] << '\n';
+  size_t n_processed = 0;
+  for (size_t thread_id = 0; thread_id < n_ranks; ++thread_id) {
+      size_t thread_start_at = n_processed;
+      size_t thread_stop_at = snps_per_rank[thread_id] + n_processed;
+      n_processed += snps_per_rank[thread_id];
+      size_t thread_n_snps = thread_stop_at - thread_start_at;
+      thread_futures.emplace_back(pool.submit(run_RATE, col_means_beta, cov_beta_ptr,
+					      args.value<std::vector<size_t>>("ids-to-test"), thread_start_at, thread_stop_at, thread_n_snps, n_threads));
   }
-  std::cout << std::endl;
+
+  size_t global_index = 0;
+  std::vector<double> log_KLD_global(n_snps, -36.84136);
+  for (size_t thread_id = 0; thread_id < n_ranks; ++thread_id) {
+      const std::vector<double> &log_KLD_local = thread_futures[thread_id].get();
+      for (size_t i = 0; i < log_KLD_local.size(); ++i) {
+	  log_KLD_global[global_index] = log_KLD_local[i];
+	  ++global_index;
+      }
+  }
+
+  // Print results
+  print_results(RATEd(log_KLD_global), n_snps);
 
   return 0;
 }

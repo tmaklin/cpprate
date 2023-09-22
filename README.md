@@ -8,7 +8,7 @@ executable is also provided, see instructions below for compiling.
 ## Compiling the cpprate executable from source
 ### Dependencies
 - cmake >= v3.1
-- C++11 compliant compiler
+- C++17 compliant compiler
 - git >= v2.0.0
 
 Build the `cpprate` executable with
@@ -57,9 +57,12 @@ cpprate -x design_matrix_file.csv --beta-draws linear_coefficients_file.tsv --id
 This will test the 5th, 6th, 7th, and 8th variables. Results from several runs may be merged by merging the KLD column in the results and recalculating the RATE column as `KLD[i]/sum(KLD)`.
 
 ## Parallelization
-Add the number of threads via the `-t` argument to parallelize calculation over the number of snps. Beware: adding threads will increase the memory consumption roughly linearly but results in a roughly linear speedup.
+cpprate can be parallelized in three ways:
+- Add the number of threads via the `-t` argument to parallelize calculation within each SNP (_many_ threads may result in some idling).
+- Use the `--ranks` argument to parallelize the calculation over the SNPs (adds a slight memory overhead).
+- Use both `-t` and `--ranks` to parallelize over both SNPs and within SNPs (try with test sets to figure out the optimal distribution).
 
-For more fine-grained parallelization over both the number of snps and within each snp, use the MPI implementation, where the `-t` argument adds threads for each MPI process parallelizing calculation over the snps. Note that adding threads within each snp is only useful for very large inputs.
+If in doubt, use `-t`.
 
 # Development
 ## Building tests

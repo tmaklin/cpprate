@@ -122,8 +122,56 @@ namespace RedSVD
 
 		void compute(const MatrixType& A, const Index rank)
 		{
-			if(A.cols() == 0 || A.rows() == 0)
-				return;
+		        DenseMatrix Z;
+		        DenseMatrix Y;
+		        const Eigen::BDCSVD<DenseMatrix> &svdOfC = this->compute_svd(A, rank, &Z, &Y);
+			m_matrixU = std::move(Z * svdOfC.matrixU());
+			m_vectorS = std::move(svdOfC.singularValues());
+			m_matrixV = std::move(Y * svdOfC.matrixV());
+		}
+
+	        void compute_V(const MatrixType& A, const Index rank)
+		{
+		        DenseMatrix Z;
+		        DenseMatrix Y;
+		        const Eigen::BDCSVD<DenseMatrix> &svdOfC = this->compute_svd(A, rank, &Z, &Y);
+			m_vectorS = std::move(svdOfC.singularValues());
+			m_matrixV = std::move(Y * svdOfC.matrixV());
+		}
+
+	        void compute_U(const MatrixType& A, const Index rank)
+		{
+		        DenseMatrix Z;
+			DenseMatrix Y;
+		        const Eigen::BDCSVD<DenseMatrix> &svdOfC = this->compute_svd(A, rank, &Z, &Y);
+			m_vectorS = std::move(svdOfC.singularValues());
+			m_matrixU = std::move(Z * svdOfC.matrixU());
+		}
+
+	        void compute_singularValues(const MatrixType& A, const Index rank)
+		{
+		        const Eigen::BDCSVD<DenseMatrix> &svdOfC = this->compute_svd(A, rank);
+			// C = USV^T
+			// A = Z * U * S * V^T * Y^T()
+			m_vectorS = std::move(svdOfC.singularValues());
+		}
+
+	        const DenseMatrix& matrixU() const { return m_matrixU; }
+		const ScalarVector& singularValues() const { return m_vectorS; }
+		const DenseMatrix& matrixV() const { return m_matrixV; }
+	        DenseMatrix& matrixU() { return m_matrixU; }
+		ScalarVector& singularValues() { return m_vectorS; }
+		DenseMatrix& matrixV() { return m_matrixV; }
+
+	private:
+		DenseMatrix m_matrixU;
+		ScalarVector m_vectorS;
+		DenseMatrix m_matrixV;
+
+	        Eigen::BDCSVD<DenseMatrix> compute_svd(const MatrixType& A, const Index rank, DenseMatrix *Z, DenseMatrix *Y)
+		{
+		        if(A.cols() == 0 || A.rows() == 0) {}
+			    // TODO throw error;
 
 			Index r = (rank < A.cols()) ? rank : A.cols();
 
@@ -134,55 +182,33 @@ namespace RedSVD
 			sample_gaussian(O);
 
 			// Compute Sample Matrix of A^T
-			DenseMatrix Y = A.transpose() * O;
+			*Y = A.transpose() * O;
 
 			// Orthonormalize Y
-			gram_schmidt(Y);
+			gram_schmidt(*Y);
 
 			// Range(B) = Range(A^T)
-			DenseMatrix B = A * Y;
+			DenseMatrix B = A * (*Y);
 
 			// Gaussian Random Matrix
 			DenseMatrix P(B.cols(), r);
 			sample_gaussian(P);
 
 			// Compute Sample Matrix of B
-			DenseMatrix Z = B * P;
+			*Z = B * P;
 
 			// Orthonormalize Z
-			gram_schmidt(Z);
+			gram_schmidt(*Z);
 
 			// Range(C) = Range(B)
-			DenseMatrix C = Z.transpose() * B;
-
-			Eigen::BDCSVD<DenseMatrix> svdOfC(C, Eigen::ComputeThinU | Eigen::ComputeThinV);
+			DenseMatrix C = Z->transpose() * B;
 
 			// C = USV^T
 			// A = Z * U * S * V^T * Y^T()
-			m_matrixU = Z * svdOfC.matrixU();
-			m_vectorS = svdOfC.singularValues();
-			m_matrixV = Y * svdOfC.matrixV();
-		}
+			Eigen::BDCSVD<DenseMatrix> svdOfC(C, Eigen::ComputeThinU | Eigen::ComputeThinV);
+			return svdOfC;
 
-		DenseMatrix matrixU() const
-		{
-			return m_matrixU;
 		}
-
-		ScalarVector singularValues() const
-		{
-			return m_vectorS;
-		}
-
-		DenseMatrix matrixV() const
-		{
-			return m_matrixV;
-		}
-
-	private:
-		DenseMatrix m_matrixU;
-		ScalarVector m_vectorS;
-		DenseMatrix m_matrixV;
 	};
 
 	template<typename _MatrixType>

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.1)
 project(cpprate)
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 
 ## Determine build type
 if(NOT CMAKE_BUILD_TYPE)
@@ -37,7 +37,7 @@ if (OPENMP_FOUND)
   set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -D_GLIBCXX_PARALLEL")
   set(CPPRATE_OPENMP_SUPPORT 1)
 else()
-  message(WARNING "OpenMP not found: cpprate will run in single-threaded mode only.")
+  message(WARNING "OpenMP not found: parallelization will only be possible over SNPs (the `--threads-per-snp` argument will be ignored).")
   set(CPPRATE_OPENMP_SUPPORT 0)
 endif()
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config/cpprate_openmp_config.hpp.in ${CMAKE_CURRENT_BINARY_DIR}/include/cpprate_openmp_config.hpp @ONLY)
@@ -233,3 +233,4 @@ include_directories(${CMAKE_CXXARGS_HEADERS})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include
                     ${CMAKE_CURRENT_BINARY_DIR}/include)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/external/RedSVD)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/external/bs_thread_pool/include)
