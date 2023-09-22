@@ -282,7 +282,7 @@ int main(int argc, char* argv[]) {
       snps_per_rank[i] += 1;
   }
 
-  size_t n_processed = 0;
+  size_t n_processed = id_start;
   for (size_t thread_id = 0; thread_id < n_ranks; ++thread_id) {
       size_t thread_start_at = n_processed;
       size_t thread_stop_at = snps_per_rank[thread_id] + n_processed;
@@ -292,7 +292,7 @@ int main(int argc, char* argv[]) {
 					      args.value<std::vector<size_t>>("ids-to-test"), thread_start_at, thread_stop_at, thread_n_snps, n_threads));
   }
 
-  size_t global_index = 0;
+  size_t global_index = id_start;
   std::vector<double> log_KLD_global(n_snps, -36.84136);
   for (size_t thread_id = 0; thread_id < n_ranks; ++thread_id) {
       const std::vector<double> &log_KLD_local = thread_futures[thread_id].get();
