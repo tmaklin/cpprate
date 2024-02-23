@@ -2,9 +2,9 @@
 cpprate is a reimplementation of https://github.com/lorinanthony/rate in C++.
 
 # Installation
-This is a header-only library so simply include "CppRateRes.hpp" or
-"CppRateRes_mpi.hpp" in your project. An optional command-line
-executable is also provided, see instructions below for compiling.
+## Prebuilt binaries
+Prebuilt binaries are available from the [releases page](https://github.com/tmaklin/cpprate/releases) for linux\_x86-64, macOS\_x86-64, and macOS\_arm64.
+
 ## Compiling the cpprate executable from source
 ### Dependencies
 - cmake >= v3.1
@@ -18,6 +18,10 @@ cd build
 cmake -DCMAKE_BUILD_EXECUTABLE=1 ..
 make -j
 ```
+
+## API
+This is a header-only library so simply include "CppRateRes.hpp" or
+"CppRateRes_mpi.hpp" header in your project.
 
 # Usage
 Input files can optionally be compressed with gzip/bzip2/xz. The format is detected automatically.
