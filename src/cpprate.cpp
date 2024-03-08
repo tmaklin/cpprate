@@ -230,6 +230,17 @@ int main(int argc, char* argv[]) {
 	  return 1;
       }
 
+      if (n_obs_draws <= 1) {
+	  std::cerr <<
+	      "cpprate: " +
+	      (from_beta_draws ?
+	       "Refusing to compute RATE for 1 regression coefficient (result is not meaningful)"
+	       :
+	       "Cannot compute RATE with only 1 observation in " + posterior_draws_path)
+		    << std::endl;
+	  return 1;
+      }
+
       // If running fullrank algorithm on f draws we also need to read the design matrix
       if (!from_beta_draws) {
 	  // Read in the design matrix
@@ -293,6 +304,17 @@ int main(int argc, char* argv[]) {
 	  return 1;
       }
 
+      if (n_obs_draws <= 1) {
+	  std::cerr <<
+	      "cpprate: " +
+	      (from_beta_draws ?
+	       "Refusing to compute RATE for 1 regression coefficient (result is not meaningful)"
+	       :
+	       "Cannot compute RATE with only 1 observation in " + posterior_draws_path)
+		    << std::endl;
+	  return 1;
+      }
+
       try {
 	  cov_beta_ptr.reset(new LowrankCovMat());
 	  // Decompose the design matrix
@@ -338,6 +360,11 @@ int main(int argc, char* argv[]) {
 	  std::cerr << std::string("cpprate: Error in logarithmizing lowrank covariance matrix `lambda` and `svd_V`: ") + e.what() << std::endl;
 	  return 1;
       }
+  }
+
+  if (n_snps <= 1) {
+      std::cerr << "cpprate: Refusing to compute RATE for 1 regression coefficient (result is not meaningful)" << std::endl;
+      return 1;
   }
 
   BS::thread_pool pool(n_ranks);
