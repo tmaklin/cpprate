@@ -221,9 +221,25 @@ int main(int argc, char* argv[]) {
 	  return 1;
       }
 
-      bxz::ifstream posterior_draws_in(posterior_draws_path);
-      read_posterior_draws(&posterior_draws_in, &n_draws, &n_obs_draws, &posterior_draws);
-      posterior_draws_in.close();
+      try {
+	  bxz::ifstream posterior_draws_in(posterior_draws_path);
+	  read_posterior_draws(&posterior_draws_in, &n_draws, &n_obs_draws, &posterior_draws);
+	  posterior_draws_in.close();
+      } catch (std::exception &e) {
+	  std::cerr << std::string("cpprate: Error in reading posterior draws: ") + e.what() << std::endl;
+	  return 1;
+      }
+
+      if (n_obs_draws <= 1) {
+	  std::cerr <<
+	      "cpprate: " +
+	      (from_beta_draws ?
+	       "Refusing to compute RATE for 1 regression coefficient (result is not meaningful)"
+	       :
+	       "Cannot compute RATE with only 1 observation in " + posterior_draws_path)
+		    << std::endl;
+	  return 1;
+      }
 
       // If running fullrank algorithm on f draws we also need to read the design matrix
       if (!from_beta_draws) {
@@ -236,20 +252,31 @@ int main(int argc, char* argv[]) {
 	      std::cerr << std::string("cpprate: ") + e.what() << std::endl;
 	      return 1;
 	  }
-	  bxz::ifstream design_matrix_in(args.value<std::string>('x'));
-	  // Next call will overwrite the f_draws currently stored in posterior_draws
-	  // with beta draws = f_draws * pseudoinverse(design_matrix)
-	  read_nonlinear_coefficients(&design_matrix_in, &n_snps, &n_obs_X, &posterior_draws);
+	  try {
+	      bxz::ifstream design_matrix_in(args.value<std::string>('x'));
+	      // Next call will overwrite the f_draws currently stored in posterior_draws
+	      // with beta draws = f_draws * pseudoinverse(design_matrix)
+	      read_nonlinear_coefficients(&design_matrix_in, &n_snps, &n_obs_X, &posterior_draws);
+	  } catch (std::exception &e) {
+	      std::cerr << std::string("cpprate: Error in computing `f_draws * pseudoinverse(design_matrix)`: ") + e.what() << std::endl;
+	      return 1;
+	  }
 
 	  // Check that the input dimensions are correct
 	  if (n_obs_X != n_obs_draws) {
-	      throw std::runtime_error("Number of rows in file " + args.value<std::string>('x') + " (" + std::to_string(n_obs_X) + ") does not match number of columns in file " + args.value<std::string>('f') + " (" + std::to_string(n_obs_draws) + ").");
+	      std::cerr << std::string("cpprate: Number of rows in file " + args.value<std::string>('x') + " (" + std::to_string(n_obs_X) + ") does not match number of columns in file " + args.value<std::string>('f') + " (" + std::to_string(n_obs_draws) + ").") << std::endl;
+	      return 1;
 	  }
       }
 
-      cov_beta_ptr.reset(new FullrankCovMat());
-      static_cast<FullrankCovMat*>(cov_beta_ptr.get())->fill(posterior_draws);
-      col_means_beta = std::move(col_means2(posterior_draws));
+      try {
+	  cov_beta_ptr.reset(new FullrankCovMat());
+	  static_cast<FullrankCovMat*>(cov_beta_ptr.get())->fill(posterior_draws);
+	  col_means_beta = std::move(col_means2(posterior_draws));
+      } catch (std::exception &e) {
+	  std::cerr << std::string("cpprate: Error in computing fullrank covariance matrix: ") + e.what() << std::endl;
+	  return 1;
+      }
   }
 
   // Otherwise running lowrank algorithm
@@ -268,45 +295,76 @@ int main(int argc, char* argv[]) {
 	  return 1;
       }
 
-      bxz::ifstream posterior_draws_in(posterior_draws_path);
-      read_posterior_draws(&posterior_draws_in, &n_draws, &n_obs_draws, &posterior_draws);
-      posterior_draws_in.close();
-
-      cov_beta_ptr.reset(new LowrankCovMat());
-      // Decompose the design matrix
-      Eigen::MatrixXd svd_design_matrix_U;
-      size_t n_obs;
-
       try {
-	  file_exists(args.value<std::string>('x'));
+	  bxz::ifstream posterior_draws_in(posterior_draws_path);
+	  read_posterior_draws(&posterior_draws_in, &n_draws, &n_obs_draws, &posterior_draws);
+	  posterior_draws_in.close();
       } catch (std::exception &e) {
-	  std::cerr << std::string("cpprate: ") + e.what() << std::endl;
+	  std::cerr << std::string("cpprate: Error in reading posterior draws: ") + e.what() << std::endl;
 	  return 1;
       }
-      if (from_beta_draws) {
-	  const Eigen::SparseMatrix<double> &design_matrix = read_decomposition(args.value<std::string>('x'), low_rank_rank, args.value<double>("prop-var"), &n_snps, &n_obs, &svd_design_matrix_U,  static_cast<LowrankCovMat*>(cov_beta_ptr.get())->get_svd_V_p()).transpose();
-	  posterior_draws *= design_matrix ;
-      } else {
-	  read_decomposition(args.value<std::string>('x'), low_rank_rank, args.value<double>("prop-var"), &n_snps, &n_obs, &svd_design_matrix_U,  static_cast<LowrankCovMat*>(cov_beta_ptr.get())->get_svd_V_p()) ;
+
+      if (n_obs_draws <= 1) {
+	  std::cerr <<
+	      "cpprate: " +
+	      (from_beta_draws ?
+	       "Refusing to compute RATE for 1 regression coefficient (result is not meaningful)"
+	       :
+	       "Cannot compute RATE with only 1 observation in " + posterior_draws_path)
+		    << std::endl;
+	  return 1;
       }
 
-      // Check that the input dimensions are correct
-      if (n_snps != n_obs_draws && from_beta_draws) {
-	  throw std::runtime_error("Number of columns in file " + args.value<std::string>('x') + " (" + std::to_string(n_snps) + ") does not match number of columns in file " + args.value<std::string>("beta-draws") + " (" + std::to_string(n_obs_draws) + ").");
-      } else if (n_obs != n_obs_draws && !from_beta_draws) {
-	  throw std::runtime_error("Number of rows in file " + args.value<std::string>('x') + " (" + std::to_string(n_obs) + ") does not match number of columns in file " + args.value<std::string>('f') + " (" + std::to_string(n_obs_draws) + ").");
+      try {
+	  cov_beta_ptr.reset(new LowrankCovMat());
+	  // Decompose the design matrix
+	  Eigen::MatrixXd svd_design_matrix_U;
+	  size_t n_obs;
+
+	  try {
+	      file_exists(args.value<std::string>('x'));
+	  } catch (std::exception &e) {
+	      std::cerr << std::string("cpprate: ") + e.what() << std::endl;
+	      return 1;
+	  }
+	  if (from_beta_draws) {
+	      const Eigen::SparseMatrix<double> &design_matrix = read_decomposition(args.value<std::string>('x'), low_rank_rank, args.value<double>("prop-var"), &n_snps, &n_obs, &svd_design_matrix_U,  static_cast<LowrankCovMat*>(cov_beta_ptr.get())->get_svd_V_p()).transpose();
+	      posterior_draws *= design_matrix ;
+	  } else {
+	      read_decomposition(args.value<std::string>('x'), low_rank_rank, args.value<double>("prop-var"), &n_snps, &n_obs, &svd_design_matrix_U,  static_cast<LowrankCovMat*>(cov_beta_ptr.get())->get_svd_V_p()) ;
+	  }
+
+	  // Check that the input dimensions are correct
+	  if (n_snps != n_obs_draws && from_beta_draws) {
+	      throw std::runtime_error("Number of columns in file " + args.value<std::string>('x') + " (" + std::to_string(n_snps) + ") does not match number of columns in file " + args.value<std::string>("beta-draws") + " (" + std::to_string(n_obs_draws) + ").");
+	  } else if (n_obs != n_obs_draws && !from_beta_draws) {
+	      throw std::runtime_error("Number of rows in file " + args.value<std::string>('x') + " (" + std::to_string(n_obs) + ") does not match number of columns in file " + args.value<std::string>('f') + " (" + std::to_string(n_obs_draws) + ").");
+	  }
+
+	  // If lowrank decomposition rank was supplied set it to minimum of the dimension of design_matrix
+	  low_rank_rank = low_rank_rank == 0 ? std::min(n_snps, n_obs) : low_rank_rank;
+
+	  static_cast<LowrankCovMat*>(cov_beta_ptr.get())->construct(project_f_draws(posterior_draws, svd_design_matrix_U), low_rank_rank);
+	  col_means_beta = std::move(approximate_beta_means(posterior_draws, svd_design_matrix_U,  static_cast<LowrankCovMat*>(cov_beta_ptr.get())->get_svd_V()));
+      } catch (std::exception &e) {
+	  std::cerr << std::string("cpprate: Error in computing lowrank covariance matrix: ") + e.what() << std::endl;
+	  return 1;
       }
-
-      // If lowrank decomposition rank was supplied set it to minimum of the dimension of design_matrix
-      low_rank_rank = low_rank_rank == 0 ? std::min(n_snps, n_obs) : low_rank_rank;
-
-      static_cast<LowrankCovMat*>(cov_beta_ptr.get())->construct(project_f_draws(posterior_draws, svd_design_matrix_U), low_rank_rank);
-      col_means_beta = std::move(approximate_beta_means(posterior_draws, svd_design_matrix_U,  static_cast<LowrankCovMat*>(cov_beta_ptr.get())->get_svd_V()));
   }
 
   if (!run_fullrank) {
-       static_cast<LowrankCovMat*>(cov_beta_ptr.get())->logarithmize_lambda();
-       static_cast<LowrankCovMat*>(cov_beta_ptr.get())->logarithmize_svd_V();
+      try {
+	  static_cast<LowrankCovMat*>(cov_beta_ptr.get())->logarithmize_lambda();
+	  static_cast<LowrankCovMat*>(cov_beta_ptr.get())->logarithmize_svd_V();
+      } catch (std::exception &e) {
+	  std::cerr << std::string("cpprate: Error in logarithmizing lowrank covariance matrix `lambda` and `svd_V`: ") + e.what() << std::endl;
+	  return 1;
+      }
+  }
+
+  if (n_snps <= 1) {
+      std::cerr << "cpprate: Refusing to compute RATE for 1 regression coefficient (result is not meaningful)" << std::endl;
+      return 1;
   }
 
   BS::thread_pool pool(n_ranks);
@@ -334,10 +392,15 @@ int main(int argc, char* argv[]) {
   size_t global_index = id_start;
   std::vector<double> log_KLD_global(n_snps, -36.84136);
   for (size_t thread_id = 0; thread_id < n_ranks; ++thread_id) {
-      const std::vector<double> &log_KLD_local = thread_futures[thread_id].get();
-      for (size_t i = 0; i < log_KLD_local.size(); ++i) {
-	  log_KLD_global[global_index] = log_KLD_local[i];
-	  ++global_index;
+      try {
+	  const std::vector<double> &log_KLD_local = thread_futures[thread_id].get();
+	  for (size_t i = 0; i < log_KLD_local.size(); ++i) {
+	      log_KLD_global[global_index] = log_KLD_local[i];
+	      ++global_index;
+	  }
+      } catch (std::exception &e) {
+	  std::cerr << std::string("cpprate: thread ") + std::to_string(thread_id) + std::string(": Error in computing KLD for regression coefficent: ") + std::to_string(global_index) + std::string(": ") + e.what() << std::endl;
+	  return 1;
       }
   }
 
