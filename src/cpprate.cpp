@@ -39,6 +39,7 @@
 #include <cstddef>
 #include <algorithm>
 #include <exception>
+#include <filesystem>
 
 #include "bxzstr.hpp"
 #include "BS_thread_pool.hpp"
@@ -49,6 +50,14 @@
 
 bool CmdOptionPresent(char **begin, char **end, const std::string &option) {
   return (std::find(begin, end, option) != end);
+}
+
+bool file_exists(const std::string &file_path) {
+    std::filesystem::path check_file{ file_path };
+    if (!std::filesystem::exists(check_file)) {
+	throw std::runtime_error(file_path + " does not exist.");
+    }
+    return true;
 }
 
 bool parse_args(int argc, char* argv[], cxxargs::Arguments &args) {
@@ -203,7 +212,16 @@ int main(int argc, char* argv[]) {
       Eigen::MatrixXd posterior_draws;
       size_t n_draws = 0;
       size_t n_obs_draws = 0;
-      bxz::ifstream posterior_draws_in((from_beta_draws ? args.value<std::string>("beta-draws") : args.value<std::string>('f')));
+
+      std::string posterior_draws_path = (from_beta_draws ? args.value<std::string>("beta-draws") : args.value<std::string>('f'));
+      try {
+	  file_exists(posterior_draws_path);
+      } catch (std::exception &e) {
+	  std::cerr << std::string("cpprate: ") + e.what() << std::endl;
+	  return 1;
+      }
+
+      bxz::ifstream posterior_draws_in(posterior_draws_path);
       read_posterior_draws(&posterior_draws_in, &n_draws, &n_obs_draws, &posterior_draws);
       posterior_draws_in.close();
 
@@ -212,6 +230,12 @@ int main(int argc, char* argv[]) {
 	  // Read in the design matrix
 	  size_t n_snps = 0;
 	  size_t n_obs_X = 0;
+	  try {
+	      file_exists(args.value<std::string>('x'));
+	  } catch (std::exception &e) {
+	      std::cerr << std::string("cpprate: ") + e.what() << std::endl;
+	      return 1;
+	  }
 	  bxz::ifstream design_matrix_in(args.value<std::string>('x'));
 	  // Next call will overwrite the f_draws currently stored in posterior_draws
 	  // with beta draws = f_draws * pseudoinverse(design_matrix)
@@ -235,7 +259,16 @@ int main(int argc, char* argv[]) {
       Eigen::MatrixXd posterior_draws;
       size_t n_draws = 0;
       size_t n_obs_draws = 0;
-      bxz::ifstream posterior_draws_in((from_beta_draws ? args.value<std::string>("beta-draws") : args.value<std::string>('f')));
+
+      std::string posterior_draws_path = (from_beta_draws ? args.value<std::string>("beta-draws") : args.value<std::string>('f'));
+      try {
+	  file_exists(posterior_draws_path);
+      } catch (std::exception &e) {
+	  std::cerr << std::string("cpprate: ") + e.what() << std::endl;
+	  return 1;
+      }
+
+      bxz::ifstream posterior_draws_in(posterior_draws_path);
       read_posterior_draws(&posterior_draws_in, &n_draws, &n_obs_draws, &posterior_draws);
       posterior_draws_in.close();
 
@@ -244,6 +277,12 @@ int main(int argc, char* argv[]) {
       Eigen::MatrixXd svd_design_matrix_U;
       size_t n_obs;
 
+      try {
+	  file_exists(args.value<std::string>('x'));
+      } catch (std::exception &e) {
+	  std::cerr << std::string("cpprate: ") + e.what() << std::endl;
+	  return 1;
+      }
       if (from_beta_draws) {
 	  const Eigen::SparseMatrix<double> &design_matrix = read_decomposition(args.value<std::string>('x'), low_rank_rank, args.value<double>("prop-var"), &n_snps, &n_obs, &svd_design_matrix_U,  static_cast<LowrankCovMat*>(cov_beta_ptr.get())->get_svd_V_p()).transpose();
 	  posterior_draws *= design_matrix ;
