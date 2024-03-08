@@ -72,6 +72,7 @@ bool parse_args(int argc, char* argv[], cxxargs::Arguments &args) {
     args.add_long_argument<double>("prop-var", "Proportion of variance to explain in lowrank factorization (default: 100%)", 1.1);
     args.add_long_argument<size_t>("low-rank", "Rank of the low-rank factorization (default: min(design_matrix.rows(), design_matrix.cols()))", 0);
     args.add_long_argument<bool>("fullrank", "Run fullrank algorithm (default: false)", false);
+    args.add_long_argument<bool>("print-progress", "Print progress bar from the first rank (default: false)", false);
     args.add_long_argument<bool>("help", "Print the help message.", false);
     if (CmdOptionPresent(argv, argv+argc, "--help")) {
 	std::cout << "\n" + args.help() << '\n' << std::endl;
@@ -386,7 +387,7 @@ int main(int argc, char* argv[]) {
       n_processed += snps_per_rank[thread_id];
       size_t thread_n_snps = thread_stop_at - thread_start_at;
       thread_futures.emplace_back(pool.submit(run_RATE, col_means_beta, cov_beta_ptr,
-					      args.value<std::vector<size_t>>("ids-to-test"), thread_start_at, thread_stop_at, thread_n_snps, n_threads));
+					      args.value<std::vector<size_t>>("ids-to-test"), thread_start_at, thread_stop_at, thread_n_snps, n_threads, thread_id == 0 && args.value<bool>("print-progress")));
   }
 
   size_t global_index = id_start;

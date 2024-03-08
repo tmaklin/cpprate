@@ -56,6 +56,18 @@
 #include "CovarianceMatrix.hpp"
 #include "RATE_res.hpp"
 
+// Progress indicator
+#define cpprate_PBSTR "||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
+#define cpprate_PBWIDTH 60
+
+inline void print_progress(double percentage) {
+    int val = (int) (percentage * 100);
+    int lpad = (int) (percentage * cpprate_PBWIDTH);
+    int rpad = cpprate_PBWIDTH - lpad;
+    printf("\r%3d%% [%.*s%*s]", val, lpad, cpprate_PBSTR, rpad, "");
+    fflush(stderr);
+}
+
 inline void decompose_design_matrix(const Eigen::SparseMatrix<double> &design_matrix, const size_t svd_rank, const double prop_var,
 			     Eigen::MatrixXd *u, Eigen::MatrixXd *v) {
     // Calculate the singular value decomposition of `design_matrix`
@@ -240,7 +252,7 @@ Eigen::SparseMatrix<T> vec_to_sparse_matrix(const std::vector<V> &vec, const siz
 
 inline std::vector<double> run_RATE(const std::vector<double> &col_means_beta, const std::shared_ptr<CovMat> &cov_beta_ptr,
 				    const std::vector<size_t> &ids_to_test, const size_t id_start, const size_t id_end, const size_t n_snps,
-				    const size_t n_threads = 0) {
+				    const size_t n_threads = 0, bool progress = false) {
     std::vector<double> log_KLD(n_snps, -36.84136); // log(1e-16) = -36.84136
 #if defined(CPPRATE_OPENMP_SUPPORT) && (CPPRATE_OPENMP_SUPPORT) == 1
     if (n_threads > 0) {
@@ -258,6 +270,13 @@ inline std::vector<double> run_RATE(const std::vector<double> &col_means_beta, c
 	const double log_m = std::log(std::abs(col_means_beta[snp_id]) + 1e-16);
 	log_KLD[log_KLD_index] = log_m + log_m + log_alpha + std::log(0.5);
 	++log_KLD_index;
+
+	if (progress) {
+	    print_progress((double)i/end);
+	}
+    }
+    if (progress) {
+	std::cerr << std::endl;
     }
     return log_KLD;
 }
