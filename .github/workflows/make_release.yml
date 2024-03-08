@@ -98,6 +98,8 @@ jobs:
 
   create-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     needs: [ build_linux-x86_64, build_macOS-x86_64, build_macOS-arm64 ]
 
